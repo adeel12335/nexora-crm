@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#6c4eff" />
+  <title>Nexora CRM — Kanban Workspace</title>
+  <meta name="description" content="Premium responsive CRM and Trello-style Kanban portal UI." />
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M21 12h-3M12 21v-3M3 12h3"/></symbol>
+    <symbol id="i-contact" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><path d="M3 21h18M6 21V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v17M14 8h4a1 1 0 0 1 1 1v12"/><path d="M9 7h2M9 11h2M9 15h2M17 12h.01M17 16h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="m8 12 3 3 5-6"/><path d="M8 2v4M16 2v4"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+    <symbol id="i-kanban" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="2"/><rect x="10" y="4" width="5" height="10" rx="2"/><rect x="17" y="4" width="4" height="13" rx="2"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 21h22"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Z"/><path d="m19 15 .9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.15.36.5.7 1 .9.35.14.72.2 1.1.2H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.9Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 6h12M8 12h8M8 18h4M4 4v16M2 18l2 2 2-2"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20.5 11.5-8.8 8.8a6 6 0 0 1-8.5-8.5l9.5-9.5a4 4 0 0 1 5.7 5.7l-9.5 9.5a2 2 0 0 1-2.8-2.8l8.8-8.8"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 7-8"/><path d="M14 7h6v6"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="m3 7 4 4 5-7 5 7 4-4-2 12H5L3 7Z"/><path d="M5 19h14"/></symbol>
+  </svg>
+
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="Nexora logo" />
+        <div><strong>NEXORA</strong><span>CRM</span></div>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-item" data-nav="Dashboard"><svg><use href="#i-grid"/></svg><span>Dashboard</span></button>
+        <button class="nav-item" data-nav="Leads"><svg><use href="#i-users"/></svg><span>Leads</span></button>
+        <button class="nav-item" data-nav="Deals"><svg><use href="#i-target"/></svg><span>Deals</span></button>
+        <button class="nav-item" data-nav="Contacts"><svg><use href="#i-contact"/></svg><span>Contacts</span></button>
+        <button class="nav-item" data-nav="Companies"><svg><use href="#i-building"/></svg><span>Companies</span></button>
+        <button class="nav-item" data-nav="Tasks"><svg><use href="#i-check"/></svg><span>Tasks</span></button>
+        <button class="nav-item" data-nav="Calendar"><svg><use href="#i-calendar"/></svg><span>Calendar</span></button>
+        <button class="nav-item active" data-nav="Trello Board"><svg><use href="#i-kanban"/></svg><span>Trello Board</span></button>
+        <button class="nav-item" data-nav="Reports"><svg><use href="#i-chart"/></svg><span>Reports</span></button>
+        <button class="nav-item" data-nav="Analytics"><svg><use href="#i-spark"/></svg><span>Analytics</span></button>
+        <button class="nav-item" data-nav="Automations"><svg><use href="#i-trend"/></svg><span>Automations</span></button>
+        <button class="nav-item" data-nav="Settings"><svg><use href="#i-settings"/></svg><span>Settings</span></button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="plan-card">
+          <div class="plan-icon"><svg><use href="#i-crown"/></svg></div>
+          <div class="plan-copy"><strong>Pro Plan</strong><span>178 / 200 Users</span></div>
+          <div class="plan-progress"><i></i></div>
+        </div>
+        <button class="profile-card" id="profileButton">
+          <img src="assets/avatar-jane.svg" alt="Jane Cooper" />
+          <span><strong>Jane Cooper</strong><small>Admin</small></span>
+          <svg><use href="#i-chevron"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <button class="icon-btn mobile-menu" id="menuButton" aria-label="Open menu"><svg><use href="#i-menu"/></svg></button>
+        <div class="welcome">
+          <h1 id="greeting">Good morning, Jane! <span>👋</span></h1>
+          <p>Here’s what’s happening with your projects today.</p>
+        </div>
+        <div class="top-actions">
+          <label class="search-box">
+            <svg><use href="#i-search"/></svg>
+            <input id="searchInput" type="search" placeholder="Search anything..." autocomplete="off" />
+            <kbd>⌘ K</kbd>
+          </label>
+          <button class="round-add" id="quickAdd" aria-label="Create new card"><svg><use href="#i-plus"/></svg></button>
+          <button class="icon-btn has-badge" aria-label="Notifications"><svg><use href="#i-bell"/></svg><b>6</b></button>
+          <button class="icon-btn hide-sm" aria-label="Messages"><svg><use href="#i-mail"/></svg></button>
+          <button class="icon-btn" id="themeToggle" aria-label="Switch theme"><svg class="theme-icon"><use href="#i-moon"/></svg></button>
+          <button class="top-avatar" aria-label="Open profile"><img src="assets/avatar-robert.svg" alt="Profile" /></button>
+        </div>
+      </header>
+
+      <section class="stats-grid" aria-label="Key metrics">
+        <article class="stat-card stat-purple">
+          <div class="stat-icon"><svg><use href="#i-coins"/></svg></div>
+          <div><span>Total Deals</span><strong>$128,430</strong></div><em>↗ 12.5%</em>
+        </article>
+        <article class="stat-card stat-green">
+          <div class="stat-icon"><svg><use href="#i-check"/></svg></div>
+          <div><span>Open Tasks</span><strong>23</strong></div><em>↗ 8.2%</em>
+        </article>
+        <article class="stat-card stat-orange">
+          <div class="stat-icon"><svg><use href="#i-target"/></svg></div>
+          <div><span>Win Rate</span><strong>67%</strong></div><em>↗ 14.5%</em>
+        </article>
+        <article class="stat-card stat-blue">
+          <div class="stat-icon"><svg><use href="#i-chart"/></svg></div>
+          <div><span>Revenue</span><strong>$32,450</strong></div><em>↗ 9.1%</em>
+        </article>
+      </section>
+
+      <section class="board-section">
+        <div class="board-heading-row">
+          <div class="board-title-wrap"><h2>Trello Board</h2><button class="plain-icon" aria-label="Favorite board"><svg><use href="#i-star"/></svg></button></div>
+          <div class="view-tabs" role="tablist" aria-label="Board views">
+            <button class="active" data-view="board">Board</button>
+            <button data-view="timeline">Timeline</button>
+            <button data-view="table">Table</button>
+            <button data-view="dashboard">Dashboard</button>
+          </div>
+          <div class="board-tools">
+            <button class="tool-btn" id="filterButton"><svg><use href="#i-filter"/></svg><span>Filter</span></button>
+            <button class="tool-btn hide-md" id="groupButton">Group: None <span>⌄</span></button>
+            <button class="tool-btn hide-md" id="sortButton">Sort: Custom <span>⌄</span></button>
+            <div class="avatar-stack hide-md">
+              <img src="assets/avatar-jane.svg" alt="Jane" /><img src="assets/avatar-robert.svg" alt="Robert" /><img src="assets/avatar-lina.svg" alt="Lina" /><span>+3</span>
+            </div>
+            <button class="primary-btn" id="newCardButton">New Card <svg><use href="#i-plus"/></svg></button>
+            <button class="icon-btn compact"><svg><use href="#i-more"/></svg></button>
+          </div>
+        </div>
+
+        <div class="filter-strip" id="filterStrip" hidden>
+          <button data-filter="all" class="active">All cards</button>
+          <button data-filter="high">High priority</button>
+          <button data-filter="mine">Assigned to me</button>
+          <button data-filter="due">Due this week</button>
+        </div>
+
+        <div class="board-view active" id="boardView">
+          <div class="kanban" id="kanban"></div>
+        </div>
+        <div class="alternate-view" id="alternateView" hidden>
+          <div class="alt-visual"><svg><use href="#i-chart"/></svg></div>
+          <h3 id="alternateTitle">Timeline view</h3>
+          <p>This polished demo keeps the Kanban board as the primary working surface.</p>
+          <button class="primary-btn" id="backToBoard">Return to Board</button>
+        </div>
+      </section>
+    </main>
+
+    <aside class="detail-panel" id="detailPanel" aria-label="Card details">
+      <div class="detail-top">
+        <div class="tag-row"><span class="tag tag-orange">Proposal Sent</span><span class="tag tag-red">High Priority</span></div>
+        <button class="plain-icon" id="closeDetail" aria-label="Close details"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <h2 id="detailTitle">CRM Proposal</h2>
+      <a href="#" id="detailCompany">Stark Industries</a>
+      <div class="detail-icon-row">
+        <button><svg><use href="#i-users"/></svg></button><button><svg><use href="#i-contact"/></svg></button><button><svg><use href="#i-calendar"/></svg></button><button><svg><use href="#i-paperclip"/></svg></button><button><svg><use href="#i-more"/></svg></button>
+      </div>
+      <section class="detail-section">
+        <h3>Description</h3>
+        <p id="detailDescription">Proposal for enterprise CRM implementation with custom integrations and 12 months support.</p>
+      </section>
+      <section class="detail-section">
+        <h3>Attachments (2)</h3>
+        <div class="attachment"><span class="file-icon pdf">PDF</span><strong>proposal.pdf</strong><small>2.4 MB</small></div>
+        <div class="attachment"><span class="file-icon doc">DOC</span><strong>scope.docx</strong><small>1.1 MB</small></div>
+      </section>
+      <section class="detail-section activity-section">
+        <h3>Activity</h3>
+        <div class="activity"><img src="assets/avatar-jane.svg" alt="Jane"/><p><strong>Jane Cooper</strong> moved this card from Contacted to Proposal Sent</p><time>2h ago</time></div>
+        <div class="activity"><img src="assets/avatar-robert.svg" alt="Robert"/><p><strong>Robert Fox</strong> added a comment</p><time>5h ago</time></div>
+      </section>
+      <form class="comment-box" id="commentForm">
+        <input id="commentInput" placeholder="Add a comment..." aria-label="Add a comment" />
+        <button type="submit" aria-label="Send comment"><svg><use href="#i-send"/></svg></button>
+      </form>
+    </aside>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <dialog class="modal" id="cardModal">
+    <form method="dialog" id="cardForm">
+      <div class="modal-head"><div><span>Create a new opportunity</span><h2>New CRM Card</h2></div><button class="plain-icon" value="cancel" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+      <label>Card title<input name="title" required placeholder="e.g. Enterprise website redesign" /></label>
+      <label>Company<input name="company" required placeholder="e.g. Northstar Labs" /></label>
+      <div class="form-grid">
+        <label>Stage<select name="stage"><option value="new">New Leads</option><option value="contacted">Contacted</option><option value="proposal">Proposal Sent</option><option value="negotiation">Negotiation</option><option value="won">Won</option></select></label>
+        <label>Due date<input name="date" type="date" /></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="priority" /> Mark as high priority</label>
+      <div class="modal-actions"><button value="cancel" class="secondary-btn">Cancel</button><button type="submit" class="primary-btn">Create Card</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
