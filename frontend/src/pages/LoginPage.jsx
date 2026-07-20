@@ -3,10 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const DEMO_ACCOUNTS = [
-  { role: 'Admin', email: 'admin@nexora.test' },
-  { role: 'Manager', email: 'manager@nexora.test' },
-  { role: 'Agent', email: 'lina@nexora.test' },
-  { role: 'Production', email: 'production@nexora.test' },
+  { role: 'Admin', email: 'admin@lead.com' },
+  { role: 'Manager', email: 'haseeb@gmail.com' },
+  { role: 'Agent', email: 'nafay@gmail.com' },
+  { role: 'Production', email: 'neha@gmail.com' },
 ];
 const DEMO_PASSWORD = 'password123';
 
@@ -46,9 +46,9 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <img src="/assets/logo.svg" alt="Nexora logo" />
+          <img src="/assets/logo.webp" alt="The Wiki Studio logo" />
         </div>
-        <h1>Sign in to Nexora</h1>
+        <h1>Sign in to The Wiki Studio</h1>
         <p>Attendance, production &amp; team portal</p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -58,7 +58,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@nexora.test"
+              placeholder="you@company.com"
               autoComplete="username"
               required
             />

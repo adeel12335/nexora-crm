@@ -1,29 +1,480 @@
+import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
+import { api } from '../../api/client.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
-const ROWS = [
-  { icon: 'i-clock', title: 'Late check-in cutoff', value: '9:15 AM', desc: 'Check-ins after this time are marked late.' },
-  { icon: 'i-revision', title: 'Late → auto off threshold', value: 'Every 4th late', desc: 'The 4th late check-in in a cycle counts as 1 day off.' },
-  { icon: 'i-calendar', title: 'Free offs per month', value: '2', desc: 'The 3rd off in a month triggers a payroll deduction flag.' },
-  { icon: 'i-production', title: 'New draft deadline', value: '4 days', desc: 'Time limit for a fresh production draft.' },
-  { icon: 'i-revision', title: 'Revision deadline', value: '2 days', desc: 'Time limit for a requested revision.' },
-  { icon: 'i-whatsapp', title: 'WhatsApp alerts', value: 'Enabled', desc: 'Deadline and attendance alerts are sent to WhatsApp (Phase 2).' },
+const TABS = [
+  { id: 'whatsapp', label: 'WhatsApp', icon: 'i-whatsapp' },
+  { id: 'attendance', label: 'Attendance rules', icon: 'i-clock' },
+  { id: 'cycle', label: 'Commission cycle', icon: 'i-coins' },
 ];
 
 export default function AdminSettings() {
+  const { token } = useAuth();
+  const { showToast } = useToast();
+  const [tab, setTab] = useState('whatsapp');
+
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const [waForm, setWaForm] = useState({
+    groupJid: '',
+    notifyLateIndividuals: true,
+    notifyLateGroup: true,
+    notifyDeadlinesGroup: false,
+  });
+  const [testForm, setTestForm] = useState({ to: '', text: '', useGroup: false });
+
+  const [policyData, setPolicyData] = useState(null);
+  const [overrides, setOverrides] = useState([]);
+  const [policyForm, setPolicyForm] = useState({ anchorDay: '15', endDay: '14', notes: '' });
+  const [overrideForm, setOverrideForm] = useState({ cycleStart: '', cycleEnd: '', reason: '' });
+
+  const loadAll = useCallback(async () => {
+    const [portal, pol, ov] = await Promise.all([
+      api.getPortalSettings(token),
+      api.getCyclePolicy(token),
+      api.listCycleOverrides(token),
+    ]);
+    setSettings(portal);
+    setWaForm({
+      groupJid: portal.whatsapp?.groupJid || '',
+      notifyLateIndividuals: portal.whatsapp?.notifyLateIndividuals !== false,
+      notifyLateGroup: portal.whatsapp?.notifyLateGroup !== false,
+      notifyDeadlinesGroup: Boolean(portal.whatsapp?.notifyDeadlinesGroup),
+    });
+    setPolicyData(pol);
+    setOverrides(ov.overrides || []);
+    if (pol.current) {
+      setPolicyForm({
+        anchorDay: String(pol.current.anchorDay),
+        endDay: String(pol.current.endDay),
+        notes: '',
+      });
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        await loadAll();
+      } catch (err) {
+        if (!cancelled) showToast(err.message || 'Failed to load settings');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, loadAll, showToast]);
+
+  async function saveWhatsApp(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.updateWhatsAppSettings(token, waForm);
+      showToast('WhatsApp settings saved');
+      await loadAll();
+    } catch (err) {
+      showToast(err.message || 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTest(e) {
+    e.preventDefault();
+    if (!testForm.useGroup && !testForm.to.trim()) {
+      showToast('Enter a number or send to the saved group');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.testWhatsAppSettings(token, {
+        to: testForm.to.trim() || undefined,
+        text: testForm.text.trim() || undefined,
+        useGroup: testForm.useGroup,
+      });
+      showToast(`Sent to ${result.to}${result.isGroup ? ' (group)' : ''}`);
+    } catch (err) {
+      showToast(err.message || 'Test failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitPolicy(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.createCyclePolicy(token, {
+        anchorDay: Number(policyForm.anchorDay),
+        endDay: Number(policyForm.endDay),
+        notes: policyForm.notes.trim() || undefined,
+      });
+      showToast('Cycle rule scheduled for the next cycle start');
+      await loadAll();
+    } catch (err) {
+      showToast(err.message || 'Failed to update cycle rule');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitOverride(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.createCycleOverride(token, {
+        cycleStart: overrideForm.cycleStart,
+        cycleEnd: overrideForm.cycleEnd,
+        reason: overrideForm.reason.trim() || undefined,
+      });
+      showToast('Cycle exception saved');
+      setOverrideForm({ cycleStart: '', cycleEnd: '', reason: '' });
+      await loadAll();
+    } catch (err) {
+      showToast(err.message || 'Failed to save override');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeOverride(id) {
+    if (!window.confirm('Remove this cycle exception?')) return;
+    setBusy(true);
+    try {
+      await api.deleteCycleOverride(token, id);
+      showToast('Override removed');
+      await loadAll();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const wa = settings?.whatsapp;
+  const attendance = settings?.attendance;
+  const current = policyData?.current;
+  const currentCycle = policyData?.currentCycle;
+  const groups = wa?.groups || [];
+
   return (
-    <section className="page-section">
-      <div className="section-heading">
-        <div><h2>Portal Settings</h2><p>Business rules powering attendance and production alerts — read-only preview, editable once the backend is connected</p></div>
-      </div>
-      <div className="panel" style={{ display: 'grid', gap: 2 }}>
-        {ROWS.map((row) => (
-          <div className="rule-row" key={row.title}>
-            <div className="rule-icon"><Icon id={row.icon} /></div>
-            <div className="rule-copy"><strong>{row.title}</strong><span>{row.desc}</span></div>
-            <div className="rule-counter"><strong>{row.value}</strong></div>
+    <>
+      <section className="page-section">
+        <div className="section-heading">
+          <div>
+            <h2>Settings</h2>
+            <p>WhatsApp automation, attendance rules, and commission cycle — live data only</p>
           </div>
-        ))}
-      </div>
-    </section>
+        </div>
+
+        <div className="settings-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              className={tab === t.id ? 'active' : ''}
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+            >
+              <Icon id={t.icon} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {loading ? (
+        <section className="page-section">
+          <div className="panel empty-state">Loading settings…</div>
+        </section>
+      ) : null}
+
+      {!loading && tab === 'whatsapp' && (
+        <section className="page-section">
+          <div className="panel settings-cycle-panel">
+            <div className="settings-cycle-summary">
+              <div>
+                <span className="muted">API key</span>
+                <strong>{wa?.configured ? 'Configured' : 'Missing'}</strong>
+              </div>
+              <div>
+                <span className="muted">Session</span>
+                <strong>{wa?.sessionId || '—'}</strong>
+              </div>
+              <div>
+                <span className="muted">Sending</span>
+                <strong>{wa?.enabled === false ? 'Disabled' : 'Enabled'}</strong>
+              </div>
+            </div>
+
+            {wa?.hint && <p className="commission-note">{wa.hint}</p>}
+            {wa?.error && (
+              <p className="commission-note" style={{ color: 'var(--red)' }}>{wa.error}</p>
+            )}
+
+            {wa?.manageUrl && (
+              <p className="commission-note">
+                <a href={wa.manageUrl} target="_blank" rel="noreferrer">Open Wasender session</a>
+                {' '}to copy API key / confirm WhatsApp is linked.
+              </p>
+            )}
+
+            <form className="settings-stack" onSubmit={saveWhatsApp}>
+              <h3 className="client-detail-title">Group automation</h3>
+              <label>
+                WhatsApp Group ID
+                <input
+                  value={waForm.groupJid}
+                  onChange={(e) => setWaForm({ ...waForm, groupJid: e.target.value })}
+                  placeholder="1203630xxxxxxxxxx@g.us"
+                />
+              </label>
+              {groups.length > 0 && (
+                <label>
+                  Or pick a synced group
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) setWaForm({ ...waForm, groupJid: e.target.value });
+                    }}
+                  >
+                    <option value="">Select group…</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name} — {g.id}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={waForm.notifyLateIndividuals}
+                  onChange={(e) => setWaForm({ ...waForm, notifyLateIndividuals: e.target.checked })}
+                />
+                Late check-in → agent + manager + admins (DM)
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={waForm.notifyLateGroup}
+                  onChange={(e) => setWaForm({ ...waForm, notifyLateGroup: e.target.checked })}
+                />
+                Late check-in → WhatsApp group
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={waForm.notifyDeadlinesGroup}
+                  onChange={(e) => setWaForm({ ...waForm, notifyDeadlinesGroup: e.target.checked })}
+                />
+                Production deadlines → WhatsApp group
+              </label>
+
+              <button type="submit" className="tool-btn primary" disabled={busy}>
+                Save WhatsApp settings
+              </button>
+            </form>
+
+            <form className="settings-stack" onSubmit={sendTest} style={{ marginTop: 20 }}>
+              <h3 className="client-detail-title">Send test</h3>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={testForm.useGroup}
+                  onChange={(e) => setTestForm({ ...testForm, useGroup: e.target.checked })}
+                />
+                Send to saved group
+              </label>
+              {!testForm.useGroup && (
+                <label>
+                  Phone number
+                  <input
+                    value={testForm.to}
+                    onChange={(e) => setTestForm({ ...testForm, to: e.target.value })}
+                    placeholder="03001234567"
+                  />
+                </label>
+              )}
+              <label>
+                Message
+                <input
+                  value={testForm.text}
+                  onChange={(e) => setTestForm({ ...testForm, text: e.target.value })}
+                  placeholder="Optional custom text"
+                />
+              </label>
+              <button type="submit" className="tool-btn primary" disabled={busy || !wa?.configured}>
+                {busy ? 'Sending…' : 'Send test message'}
+              </button>
+            </form>
+          </div>
+        </section>
+      )}
+
+      {!loading && tab === 'attendance' && (
+        <section className="page-section">
+          <div className="panel" style={{ display: 'grid', gap: 2 }}>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-clock" /></div>
+              <div className="rule-copy">
+                <strong>Late check-in cutoff</strong>
+                <span>Check-ins after this Karachi time are marked late.</span>
+              </div>
+              <div className="rule-counter"><strong>{attendance?.lateCutoff || '09:15'}</strong></div>
+            </div>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-revision" /></div>
+              <div className="rule-copy">
+                <strong>Late → auto off</strong>
+                <span>Every Nth late in a cycle counts as 1 day off.</span>
+              </div>
+              <div className="rule-counter"><strong>Every {attendance?.lateCountForAutoOff ?? 4}th</strong></div>
+            </div>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-calendar" /></div>
+              <div className="rule-copy">
+                <strong>Free offs / month</strong>
+                <span>Extra offs beyond this flag a payroll deduction.</span>
+              </div>
+              <div className="rule-counter"><strong>{attendance?.freeOffsPerMonth ?? 2}</strong></div>
+            </div>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-production" /></div>
+              <div className="rule-copy">
+                <strong>New draft deadline</strong>
+                <span>Default due date for draft production cards.</span>
+              </div>
+              <div className="rule-counter"><strong>{attendance?.draftDeadlineDays ?? 4} days</strong></div>
+            </div>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-revision" /></div>
+              <div className="rule-copy">
+                <strong>Revision deadline</strong>
+                <span>Default due date for revision cards.</span>
+              </div>
+              <div className="rule-counter"><strong>{attendance?.revisionDeadlineDays ?? 2} days</strong></div>
+            </div>
+          </div>
+          <p className="commission-note" style={{ marginTop: 12 }}>
+            These values come from the live server rules — not demo placeholders.
+          </p>
+        </section>
+      )}
+
+      {!loading && tab === 'cycle' && (
+        <>
+          <section className="page-section">
+            <div className="section-heading">
+              <div>
+                <h2>Commission cycle rule</h2>
+                <p>Changes apply from the next cycle start — history is never rewritten.</p>
+              </div>
+            </div>
+            <div className="panel settings-cycle-panel">
+              <div className="settings-cycle-summary">
+                <div>
+                  <span className="muted">Active rule</span>
+                  <strong>
+                    {current
+                      ? `Day ${current.anchorDay} → day ${current.endDay}`
+                      : '15 → 14 (fallback)'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="muted">Current cycle</span>
+                  <strong>{currentCycle?.label || '—'}</strong>
+                </div>
+                <div>
+                  <span className="muted">In force from</span>
+                  <strong>{current?.effectiveFrom || '—'}</strong>
+                </div>
+              </div>
+
+              <form className="inline-form" onSubmit={submitPolicy}>
+                <label>
+                  Anchor day
+                  <input type="number" min="1" max="28" required value={policyForm.anchorDay}
+                    onChange={(e) => setPolicyForm({ ...policyForm, anchorDay: e.target.value })} />
+                </label>
+                <label>
+                  End day
+                  <input type="number" min="1" max="28" required value={policyForm.endDay}
+                    onChange={(e) => setPolicyForm({ ...policyForm, endDay: e.target.value })} />
+                </label>
+                <label>
+                  Notes
+                  <input value={policyForm.notes}
+                    onChange={(e) => setPolicyForm({ ...policyForm, notes: e.target.value })}
+                    placeholder="Optional" />
+                </label>
+                <button type="submit" className="tool-btn primary" disabled={busy}>Schedule rule</button>
+              </form>
+            </div>
+          </section>
+
+          <section className="page-section">
+            <div className="section-heading">
+              <div>
+                <h2>One-off cycle exception</h2>
+                <p>Extend a single window without changing the default rule.</p>
+              </div>
+            </div>
+            <div className="panel settings-cycle-panel">
+              <form className="inline-form" onSubmit={submitOverride}>
+                <label>
+                  Cycle start
+                  <input type="date" required value={overrideForm.cycleStart}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, cycleStart: e.target.value })} />
+                </label>
+                <label>
+                  Cycle end
+                  <input type="date" required value={overrideForm.cycleEnd}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, cycleEnd: e.target.value })} />
+                </label>
+                <label>
+                  Reason
+                  <input value={overrideForm.reason}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, reason: e.target.value })}
+                    placeholder="Payroll delay" />
+                </label>
+                <button type="submit" className="tool-btn primary" disabled={busy}>Add exception</button>
+              </form>
+
+              <h3 className="client-detail-title">Active exceptions</h3>
+              <table className="attendance-table">
+                <thead>
+                  <tr><th>Start</th><th>End</th><th>Reason</th><th /></tr>
+                </thead>
+                <tbody>
+                  {overrides.map((o) => (
+                    <tr key={o.id}>
+                      <td>{o.cycleStart}</td>
+                      <td>{o.cycleEnd}</td>
+                      <td>{o.reason || '—'}</td>
+                      <td>
+                        <button type="button" className="tool-btn" disabled={busy}
+                          onClick={() => removeOverride(o.id)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!overrides.length && (
+                    <tr><td colSpan={4}><div className="empty-state">No exceptions</div></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
   );
 }

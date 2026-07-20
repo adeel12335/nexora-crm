@@ -8,13 +8,13 @@ function useGreeting() {
   return { text: 'Good evening', emoji: '🌙' };
 }
 
-export default function Topbar({ role, user, onLogout, title, subtitle, onMenuClick, alertsCount = 0 }) {
+export default function Topbar({ role, user, onLogout, title, subtitle, onMenuClick, menuOpen = false, alertsCount = 0 }) {
   const greeting = useGreeting();
   const firstName = user.name.split(' ')[0];
 
   return (
     <header className="topbar">
-      <button className="icon-btn mobile-menu" aria-label="Open menu" onClick={onMenuClick}>
+      <button className="icon-btn mobile-menu" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="primary-navigation" onClick={onMenuClick}>
         <Icon id="i-menu" />
       </button>
       <div className="welcome">
@@ -22,11 +22,6 @@ export default function Topbar({ role, user, onLogout, title, subtitle, onMenuCl
         <p>{subtitle ?? "Here's what's happening in your portal today."}</p>
       </div>
       <div className="top-actions">
-        <label className="search-box">
-          <Icon id="i-search" />
-          <input type="search" placeholder="Search anything..." autoComplete="off" />
-          <kbd>Ctrl K</kbd>
-        </label>
         <Link to={`${role.basePath}/notifications`} className={`icon-btn${alertsCount ? ' has-badge' : ''}`} aria-label="Notifications">
           <Icon id="i-bell" />
           {alertsCount > 0 && <b>{alertsCount}</b>}

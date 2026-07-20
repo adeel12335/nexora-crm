@@ -1,3 +1,5 @@
+import { karachiClockParts } from './karachiTime.js';
+
 // Ported 1:1 from frontend/src/utils/attendanceRules.js so both sides agree.
 export const RULES = {
   freeOffsPerMonth: 2,
@@ -12,7 +14,8 @@ export function computeAttendanceStatus({ lateCount = 0, offsTaken = 0 }) {
   const offsRemaining = Math.max(0, RULES.freeOffsPerMonth - effectiveOffs);
   const deduction = effectiveOffs > RULES.freeOffsPerMonth;
   const lateInCycle = lateCount % RULES.lateCountForAutoOff;
-  const lateUntilAutoOff = lateInCycle === 0 ? RULES.lateCountForAutoOff : RULES.lateCountForAutoOff - lateInCycle;
+  const lateUntilAutoOff =
+    lateInCycle === 0 ? RULES.lateCountForAutoOff : RULES.lateCountForAutoOff - lateInCycle;
 
   return {
     lateCount,
@@ -25,9 +28,11 @@ export function computeAttendanceStatus({ lateCount = 0, offsTaken = 0 }) {
   };
 }
 
-export function isLateCheckIn(date) {
+/** Late if after 9:15 AM Asia/Karachi */
+export function isLateCheckIn(date = new Date()) {
+  const p = karachiClockParts(date);
   return (
-    date.getHours() > RULES.lateCutoffHour ||
-    (date.getHours() === RULES.lateCutoffHour && date.getMinutes() > RULES.lateCutoffMinute)
+    p.hour > RULES.lateCutoffHour ||
+    (p.hour === RULES.lateCutoffHour && p.minute > RULES.lateCutoffMinute)
   );
 }

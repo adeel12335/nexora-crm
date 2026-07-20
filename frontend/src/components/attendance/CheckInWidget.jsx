@@ -1,65 +1,164 @@
 import { useEffect, useState } from 'react';
-import { useToast } from '../../context/ToastContext.jsx';
+import { formatElapsed, useAttendanceSession } from '../../hooks/useAttendanceSession.jsx';
 
-const LATE_AFTER_HOUR = 9;
-const LATE_AFTER_MINUTE = 15;
+const TZ = 'Asia/Karachi';
 
-function formatTime(date) {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function formatClock(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(date);
 }
 
-function isLate(date) {
-  return date.getHours() > LATE_AFTER_HOUR || (date.getHours() === LATE_AFTER_HOUR && date.getMinutes() > LATE_AFTER_MINUTE);
+function formatDate(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
 }
 
-export default function CheckInWidget({ initialCheckIn = null, initialCheckOut = null }) {
-  const { showToast } = useToast();
+export default function CheckInWidget() {
   const [now, setNow] = useState(() => new Date());
-  const [checkIn, setCheckIn] = useState(initialCheckIn);
-  const [checkOut, setCheckOut] = useState(initialCheckOut);
-  const [late, setLate] = useState(false);
+  const {
+    loading,
+    busy,
+    record,
+    sessions,
+    openSession,
+    canCheckIn,
+    liveElapsed,
+    status,
+    isWorking,
+    hasDayRecord,
+    emailsInput,
+    setEmailsInput,
+    modalMode,
+    handleCheckIn,
+    startCheckout,
+    startOpenClose,
+    startProgress,
+    confirmModal,
+    cancelModal,
+  } = useAttendanceSession();
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000 * 30);
+    const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  function handleCheckIn() {
-    const time = new Date();
-    setCheckIn(formatTime(time));
-    setLate(isLate(time));
-    showToast(isLate(time) ? 'Checked in — marked as late' : 'Checked in — have a great day!');
+  const statusLabel = {
+    out: 'Not checked in',
+    in: 'Checked in',
+    late: 'Checked in (late)',
+    paused: 'Checked out — can check in again',
+  }[status];
+
+  if (loading) {
+    return (
+      <div className="panel checkin-card">
+        <div className="checkin-date">Loading attendance…</div>
+      </div>
+    );
   }
 
-  function handleCheckOut() {
-    const time = new Date();
-    setCheckOut(formatTime(time));
-    showToast('Checked out — see you tomorrow!');
-  }
-
-  const status = !checkIn ? 'out' : checkOut ? 'done' : late ? 'late' : 'in';
-  const statusLabel = { out: 'Not checked in', in: 'Checked in', late: 'Checked in (late)', done: 'Day complete' }[status];
+  const modalTitle =
+    modalMode === 'open' ? 'Close open session' : modalMode === 'progress' ? 'Update progress' : 'Check out';
+  const modalHint =
+    modalMode === 'open'
+      ? `Session date ${openSession?.workDate}. Checkout time defaults to 6:00 PM PKT.`
+      : modalMode === 'progress'
+        ? 'Update total emails sent today.'
+        : 'How many emails have you sent so far today?';
 
   return (
     <div className="panel checkin-card">
-      <div className="checkin-clock">{formatTime(now)}</div>
-      <div className="checkin-date">{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-      <span className={`checkin-status status-${status}`}>{statusLabel}</span>
+      <div className="checkin-clock">{formatClock(now)}</div>
+      <div className="checkin-date">{formatDate(now)} · Asia/Karachi</div>
+      <span className={`checkin-status status-${status === 'paused' ? 'done' : status}`}>{statusLabel}</span>
 
-      {!checkIn && (
-        <button className="checkin-btn" onClick={handleCheckIn}>Check In</button>
+      {liveElapsed != null && (
+        <div className="checkin-timer" aria-live="polite">{formatElapsed(liveElapsed)}</div>
       )}
-      {checkIn && !checkOut && (
-        <button className="checkin-btn checkout" onClick={handleCheckOut}>Check Out</button>
+
+      {openSession && (
+        <div className="checkin-open-banner">
+          Open session from {openSession.workDate}
+          <button type="button" className="tool-btn" onClick={startOpenClose} disabled={busy}>
+            Close it
+          </button>
+        </div>
       )}
-      {checkIn && checkOut && (
-        <button className="checkin-btn" disabled>Done for today</button>
+
+      {canCheckIn && (
+        <button className="checkin-btn" onClick={handleCheckIn} disabled={busy}>
+          Check In
+        </button>
       )}
+      {isWorking && (
+        <button className="checkin-btn checkout" onClick={startCheckout} disabled={busy}>
+          Check Out
+        </button>
+      )}
+
+      <div className="checkin-widget-actions">
+        {hasDayRecord && (
+          <button type="button" className="tool-btn" onClick={startProgress} disabled={busy}>
+            Update progress
+          </button>
+        )}
+      </div>
 
       <div className="checkin-times">
-        <div><span>Check-in</span><strong>{checkIn || '—'}</strong></div>
-        <div><span>Check-out</span><strong>{checkOut || '—'}</strong></div>
+        <div><span>First in</span><strong>{record?.checkInDisplay || '—'}</strong></div>
+        <div><span>Emails</span><strong>{record?.emailsSent ?? '—'}</strong></div>
       </div>
+
+      {sessions.length > 0 && (
+        <div className="checkin-sessions">
+          {sessions.map((s, i) => (
+            <div key={s.id} className="checkin-session-row">
+              <span>Session {i + 1}</span>
+              <strong>
+                {s.checkInDisplay || '—'}
+                {s.checkOutDisplay ? ` → ${s.checkOutDisplay}` : ' · open'}
+              </strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modalMode && (
+        <div className="checkin-modal-backdrop" role="presentation" onClick={cancelModal}>
+          <div className="checkin-modal panel" role="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{modalTitle}</h3>
+            <p>{modalHint}</p>
+            <label className="checkin-emails-label">
+              Emails sent
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={emailsInput}
+                onChange={(e) => setEmailsInput(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <div className="checkin-modal-actions">
+              <button type="button" className="tool-btn" onClick={cancelModal} disabled={busy}>
+                Cancel
+              </button>
+              <button type="button" className="tool-btn primary" onClick={confirmModal} disabled={busy}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

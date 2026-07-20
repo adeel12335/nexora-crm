@@ -1,4 +1,4 @@
-import { computeDueDate, getDeadlineInfo } from '../utils/deadlineUtils.js';
+import { computeDueDate } from '../utils/deadlineUtils.js';
 
 export const avatarPool = [
   '/assets/avatar-jane.svg',
@@ -28,6 +28,7 @@ export const productionStages = [
   { id: 'in_progress', title: 'In Progress', color: '#07524D' },
   { id: 'revision', title: 'Revision', color: '#D8A74C' },
   { id: 'review', title: 'Review', color: '#C65A79' },
+  { id: 'live', title: 'Live', color: '#2F6FED' },
   { id: 'done', title: 'Done', color: '#A2A2A0' },
 ];
 
@@ -38,70 +39,116 @@ function daysAgo(n) {
   return d.toISOString();
 }
 
-function makeCard({ id, stage, type, title, client, assignee, createdAgo, priority, comments, attachments, description }) {
+function makeCard({
+  id, stage, type, title, client, assignee, createdAgo, priority = 'none',
+  comments = [], attachments = [], description, feedback,
+}) {
   const createdAt = daysAgo(createdAgo);
   const dueDate = computeDueDate(type, createdAt).toISOString();
-  return { id, stage, type, title, client, assignee, createdAt, dueDate, priority: !!priority, comments, attachments, description };
+  const commentList = Array.isArray(comments) ? comments : [];
+  const fileList = Array.isArray(attachments) ? attachments : [];
+  return {
+    id,
+    stage,
+    type,
+    title,
+    client,
+    assignee,
+    createdAt,
+    dueDate,
+    priority: priority === true ? 'high' : (priority || 'none'),
+    comments: commentList.length,
+    attachments: fileList.length,
+    commentList,
+    fileList,
+    description,
+    feedback: feedback || { status: 'none', note: '', rating: null, updatedAt: null, author: null },
+  };
+}
+
+function seedComment(author, text, hoursAgo) {
+  return {
+    id: `c-${author.id}-${hoursAgo}-${text.slice(0, 8)}`,
+    author: author.name,
+    avatar: author.avatar,
+    text,
+    time: hoursAgo <= 1 ? 'just now' : `${hoursAgo}h ago`,
+    createdAt: daysAgo(0),
+  };
 }
 
 export const productionCardsSeed = [
-  makeCard({ id: 1, stage: 'new_draft', type: 'draft', title: 'Landing Page Draft', client: 'Acme Corp', assignee: agents[3], createdAgo: 1, description: 'First homepage draft for the Q3 redesign, briefed by the marketing team.' }),
-  makeCard({ id: 2, stage: 'new_draft', type: 'draft', title: 'Product Explainer Video', client: 'Globex Inc', assignee: agents[0], createdAgo: 3, priority: true, description: '60-second explainer covering the new onboarding flow.' }),
-  makeCard({ id: 3, stage: 'in_progress', type: 'draft', title: 'Brand Style Guide', client: 'Soylent Corp', assignee: agents[1], createdAgo: 2, comments: 2, description: 'Full brand guide draft: typography, color system and logo usage.' }),
-  makeCard({ id: 4, stage: 'revision', type: 'revision', title: 'Homepage Revision Round 2', client: 'Initech', assignee: agents[4], createdAgo: 1, priority: true, comments: 3, description: 'Client requested tighter hero copy and a new CTA color.' }),
-  makeCard({ id: 5, stage: 'revision', type: 'revision', title: 'Logo Revision', client: 'Umbrella Corp', assignee: agents[2], createdAgo: 3, comments: 1, description: 'Second revision pass on the primary logo mark.' }),
-  makeCard({ id: 6, stage: 'review', type: 'draft', title: 'Social Campaign Assets', client: 'Hooli', assignee: agents[3], createdAgo: 4, attachments: 4, description: 'Ready for internal review before client delivery.' }),
-  makeCard({ id: 7, stage: 'done', type: 'draft', title: 'Email Template Set', client: 'Stark Industries', assignee: agents[0], createdAgo: 6, attachments: 2, description: 'Approved and delivered transactional email templates.' }),
+  makeCard({
+    id: 1, stage: 'new_draft', type: 'draft', title: 'Landing Page Draft', client: 'Acme Corp',
+    assignee: agents[3], createdAgo: 1,
+    description: 'First homepage draft for the Q3 redesign, briefed by the marketing team.',
+  }),
+  makeCard({
+    id: 2, stage: 'new_draft', type: 'draft', title: 'Product Explainer Video', client: 'Globex Inc',
+    assignee: agents[0], createdAgo: 3, priority: 'high',
+    description: '60-second explainer covering the new onboarding flow.',
+  }),
+  makeCard({
+    id: 3, stage: 'in_progress', type: 'draft', title: 'Brand Style Guide', client: 'Soylent Corp',
+    assignee: agents[1], createdAgo: 2, priority: 'medium',
+    comments: [
+      seedComment(agents[1], 'Working through typography scale today.', 5),
+      seedComment(agents[3], 'Please keep logo clear-space at 1x.', 3),
+    ],
+    description: 'Full brand guide draft: typography, color system and logo usage.',
+  }),
+  makeCard({
+    id: 4, stage: 'revision', type: 'revision', title: 'Homepage Revision Round 2', client: 'Initech',
+    assignee: agents[4], createdAgo: 1, priority: 'high',
+    comments: [
+      seedComment(agents[4], 'Hero copy tightened — ready for review.', 2),
+      seedComment(agents[0], 'CTA color still feels soft on dark.', 1),
+      seedComment(agents[4], 'Updated CTA to #C65A79.', 1),
+    ],
+    description: 'Client requested tighter hero copy and a new CTA color.',
+    feedback: { status: 'changes_requested', note: 'CTA needs more contrast on dark hero.', rating: 3, updatedAt: daysAgo(0), author: 'Client' },
+  }),
+  makeCard({
+    id: 5, stage: 'revision', type: 'revision', title: 'Logo Revision', client: 'Umbrella Corp',
+    assignee: agents[2], createdAgo: 3, priority: 'low',
+    comments: [seedComment(agents[2], 'Second pass on the primary mark uploaded.', 6)],
+    description: 'Second revision pass on the primary logo mark.',
+  }),
+  makeCard({
+    id: 6, stage: 'review', type: 'draft', title: 'Social Campaign Assets', client: 'Hooli',
+    assignee: agents[3], createdAgo: 4, priority: 'medium',
+    attachments: [
+      { id: 'f1', name: 'ig-story-01.png', size: 420000, type: 'image/png', url: null, uploadedAt: daysAgo(1) },
+      { id: 'f2', name: 'ig-feed-01.png', size: 510000, type: 'image/png', url: null, uploadedAt: daysAgo(1) },
+      { id: 'f3', name: 'campaign-brief.pdf', size: 890000, type: 'application/pdf', url: null, uploadedAt: daysAgo(2) },
+      { id: 'f4', name: 'copy-sheet.xlsx', size: 120000, type: 'application/vnd.ms-excel', url: null, uploadedAt: daysAgo(2) },
+    ],
+    description: 'Ready for internal review before client delivery.',
+    feedback: { status: 'pending', note: '', rating: null, updatedAt: daysAgo(0), author: null },
+  }),
+  makeCard({
+    id: 8, stage: 'live', type: 'draft', title: 'Wiki Studio Launch Page', client: 'The Wiki Studio',
+    assignee: agents[0], createdAgo: 2, priority: 'high',
+    comments: [
+      seedComment(agents[0], 'Page is live on production CDN.', 4),
+      seedComment(agents[3], 'Analytics pixel verified.', 2),
+    ],
+    attachments: [
+      { id: 'f5', name: 'launch-screenshot.png', size: 640000, type: 'image/png', url: null, uploadedAt: daysAgo(1) },
+      { id: 'f6', name: 'go-live-checklist.pdf', size: 210000, type: 'application/pdf', url: null, uploadedAt: daysAgo(2) },
+    ],
+    description: 'Public launch page currently live — monitor feedback and hotfix if needed.',
+    feedback: { status: 'approved', note: 'Looks great — ship it.', rating: 5, updatedAt: daysAgo(1), author: 'Client' },
+  }),
+  makeCard({
+    id: 7, stage: 'done', type: 'draft', title: 'Email Template Set', client: 'Stark Industries',
+    assignee: agents[0], createdAgo: 6, priority: 'none',
+    attachments: [
+      { id: 'f7', name: 'welcome.html', size: 18000, type: 'text/html', url: null, uploadedAt: daysAgo(5) },
+      { id: 'f8', name: 'receipt.html', size: 16000, type: 'text/html', url: null, uploadedAt: daysAgo(5) },
+    ],
+    description: 'Approved and delivered transactional email templates.',
+    feedback: { status: 'approved', note: 'Delivered and signed off.', rating: 5, updatedAt: daysAgo(4), author: 'Client' },
+  }),
 ];
 
-export const baseAlerts = [
-  {
-    id: 'a-late-1',
-    tone: 'orange',
-    icon: 'i-alert',
-    channel: 'app',
-    title: 'Late check-in warning',
-    body: 'Lina Souza has 3 late check-ins this month — one more auto-converts into a counted day off.',
-    time: '2h ago',
-  },
-  {
-    id: 'a-deduction-1',
-    tone: 'red',
-    icon: 'i-deduction',
-    channel: 'email',
-    title: 'Deduction triggered',
-    body: "Chris Alden has used 3 offs this month (limit is 2 free) — salary deduction has been flagged for payroll.",
-    time: '5h ago',
-  },
-  {
-    id: 'a-whatsapp-1',
-    tone: 'green',
-    icon: 'i-whatsapp',
-    channel: 'whatsapp',
-    title: 'Check-in reminder sent',
-    body: 'WhatsApp reminder sent to 2 agents who had not checked in by 9:30 AM.',
-    time: 'Yesterday',
-  },
-];
-
-export function generateDeadlineAlerts(cards) {
-  return cards
-    .filter((card) => card.stage !== 'done')
-    .map((card) => ({ card, info: getDeadlineInfo(card.dueDate) }))
-    .filter(({ info }) => info.tone !== 'ok')
-    .map(({ card, info }) => ({
-      id: `deadline-${card.id}`,
-      tone: info.tone === 'overdue' ? 'red' : 'orange',
-      icon: card.type === 'revision' ? 'i-revision' : 'i-production',
-      channel: 'whatsapp',
-      title: card.type === 'revision'
-        ? `Revision nearing deadline: ${card.title}`
-        : `Draft nearing deadline: ${card.title}`,
-      body: `${card.assignee.name} — ${info.label}. Production has been auto-notified in-app and via WhatsApp.`,
-      time: 'Just now',
-    }));
-}
-
-export function getAllAlerts() {
-  return [...generateDeadlineAlerts(productionCardsSeed), ...baseAlerts];
-}

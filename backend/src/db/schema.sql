@@ -20,9 +20,23 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   check_in_time DATETIME NULL,
   check_out_time DATETIME NULL,
   status ENUM('present', 'late', 'absent', 'off') NOT NULL DEFAULT 'present',
+  emails_sent INT NULL,
+  worked_minutes INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_day (user_id, work_date),
   CONSTRAINT fk_attendance_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS daily_progress (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  work_date DATE NOT NULL,
+  emails_sent INT NOT NULL DEFAULT 0,
+  notes VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_progress_user_day (user_id, work_date),
+  CONSTRAINT fk_progress_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS production_cards (
@@ -30,7 +44,7 @@ CREATE TABLE IF NOT EXISTS production_cards (
   title VARCHAR(200) NOT NULL,
   client VARCHAR(160) NOT NULL,
   type ENUM('draft', 'revision') NOT NULL,
-  stage ENUM('new_draft', 'in_progress', 'revision', 'review', 'done') NOT NULL DEFAULT 'new_draft',
+  stage ENUM('new_draft', 'in_progress', 'revision', 'review', 'live', 'done') NOT NULL DEFAULT 'new_draft',
   assignee_id INT NOT NULL,
   priority TINYINT(1) NOT NULL DEFAULT 0,
   comments_count INT NOT NULL DEFAULT 0,

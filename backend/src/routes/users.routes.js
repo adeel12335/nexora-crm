@@ -5,10 +5,13 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const usersRoutes = Router();
 
-usersRoutes.use(requireAuth, requireRole('admin'));
+usersRoutes.use(requireAuth);
 
-usersRoutes.get('/', asyncHandler(listUsers));
-usersRoutes.get('/:id', asyncHandler(getUser));
-usersRoutes.post('/', asyncHandler(createUser));
-usersRoutes.patch('/:id', asyncHandler(updateUser));
-usersRoutes.delete('/:id', asyncHandler(deleteUser));
+// A manager needs to read the directory to pick people on their own screens;
+// creating, editing and removing users stays with the admin.
+usersRoutes.get('/', requireRole('admin', 'manager'), asyncHandler(listUsers));
+usersRoutes.get('/:id', requireRole('admin', 'manager'), asyncHandler(getUser));
+
+usersRoutes.post('/', requireRole('admin'), asyncHandler(createUser));
+usersRoutes.patch('/:id', requireRole('admin'), asyncHandler(updateUser));
+usersRoutes.delete('/:id', requireRole('admin'), asyncHandler(deleteUser));

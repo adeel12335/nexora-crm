@@ -1,32 +1,62 @@
 import { Icon } from '../../icons/IconSprite.jsx';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
+import { isHighPriority, priorityLabel } from '../../utils/boardValidation.js';
 
 export default function TaskCard({ card, stageColor, selected, onSelect, onDragStart, onDragEnd, dragging }) {
   const deadline = getDeadlineInfo(card.dueDate);
+  const comments = card.comments || card.commentList?.length || 0;
+  const attachments = card.attachments || card.fileList?.length || 0;
+  const feedback = card.feedback?.status;
+  const priority = card.priority;
+  const showPriority = priority && priority !== 'none';
 
   return (
     <article
-      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}`}
+      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${card.stage === 'live' ? ' is-live' : ''}`}
       style={{ '--stage': stageColor }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${card.title} details`}
       draggable
       onClick={() => onSelect(card.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(card.id);
+        }
+      }}
       onDragStart={(e) => onDragStart(e, card)}
       onDragEnd={onDragEnd}
     >
-      {card.priority && <span className="priority-flag" />}
+      {isHighPriority(priority) && <span className="priority-flag" />}
+      {showPriority && !isHighPriority(priority) && (
+        <span className={`priority-flag priority-${priority}`} />
+      )}
+
       <div className="card-top">
         <strong>{card.title}</strong>
-        <button className="card-menu" aria-label="Card actions" onClick={(e) => e.stopPropagation()}>
-          <Icon id="i-more" />
-        </button>
       </div>
-      <a className="company" href="#!" onClick={(e) => e.preventDefault()}>{card.client}</a>
+      <span className="company">{card.client}</span>
+
+      <div className="card-tags">
+        <span className={`type-pill ${card.type}`}>{card.type === 'draft' ? 'Draft' : 'Revision'}</span>
+        {showPriority ? (
+          <span className={`priority-pill priority-${priority === true ? 'high' : priority}`}>
+            {priorityLabel(priority)}
+          </span>
+        ) : null}
+        {feedback && feedback !== 'none' ? (
+          <span className={`feedback-pill feedback-${feedback}`}>
+            {feedback === 'approved' ? 'Approved' : feedback === 'changes_requested' ? 'Changes' : 'Pending'}
+          </span>
+        ) : null}
+      </div>
+
       <div className="card-bottom">
-        <img src={card.assignee.avatar} alt={card.assignee.name} />
+        <img src={card.assignee.avatar} alt="" />
         <div className="card-meta">
-          <span className={`type-pill ${card.type}`}>{card.type === 'draft' ? 'Draft' : 'Revision'}</span>
-          {card.comments ? <span><Icon id="i-message" />{card.comments}</span> : null}
-          {card.attachments ? <span><Icon id="i-paperclip" />{card.attachments}</span> : null}
+          {comments > 0 && <span title="Comments"><Icon id="i-message" />{comments}</span>}
+          {attachments > 0 && <span title="Files"><Icon id="i-paperclip" />{attachments}</span>}
           <span className={`deadline-pill ${deadline.tone}`}>
             <Icon id="i-clock" />{deadline.label}
           </span>

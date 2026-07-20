@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import './styles/theme.css'
 import './styles/layout.css'
@@ -7,7 +8,10 @@ import './styles/board.css'
 import './styles/attendance.css'
 import './styles/notifications.css'
 import './styles/auth.css'
+import './styles/commission.css'
 import App from './App.jsx'
+
+registerSW({ immediate: true })
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

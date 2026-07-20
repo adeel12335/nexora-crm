@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
 const ToastContext = createContext(null);
 
@@ -14,8 +14,10 @@ export function ToastProvider({ children }) {
     timerRef.current = setTimeout(() => setVisible(false), 2400);
   }, []);
 
+  const value = useMemo(() => ({ showToast }), [showToast]);
+
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className={`toast${visible ? ' show' : ''}`} role="status" aria-live="polite">
         {message}

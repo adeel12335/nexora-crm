@@ -1,25 +1,41 @@
-import { buildMonthStatuses } from '../../utils/attendanceRules.js';
+export default function AttendanceCalendar({ days = [], monthLabel }) {
+  const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const today = new Date();
+  const todayStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(today);
 
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const firstDate = days[0]?.date;
+  const firstWeekday = firstDate
+    ? new Date(`${firstDate}T12:00:00+05:00`).getDay()
+    : 0;
 
-export default function AttendanceCalendar({ lateCount, offsTaken }) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const firstWeekday = new Date(year, month, 1).getDay();
-  const statuses = buildMonthStatuses({ lateCount, offsTaken, upToDay: today, totalDays });
-  const monthLabel = now.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  const label =
+    monthLabel ||
+    (firstDate
+      ? new Date(`${firstDate}T12:00:00+05:00`).toLocaleDateString('en-US', {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'Asia/Karachi',
+        })
+      : '');
 
   const cells = [
     ...Array.from({ length: firstWeekday }, (_, i) => ({ key: `blank-${i}`, empty: true })),
-    ...statuses.map((status, i) => ({ key: `day-${i + 1}`, day: i + 1, status })),
+    ...days.map((d) => ({
+      key: d.date,
+      day: d.day,
+      status: d.status,
+      isToday: d.date === todayStr,
+    })),
   ];
 
   return (
     <div className="panel calendar-card">
-      <h3>{monthLabel}</h3>
+      <h3>{label}</h3>
       <div className="calendar-legend">
         <span><i className="legend-dot present" />Present</span>
         <span><i className="legend-dot late" />Late</span>
@@ -34,7 +50,7 @@ export default function AttendanceCalendar({ lateCount, offsTaken }) {
         {cells.map((cell) => (
           <div
             key={cell.key}
-            className={`calendar-day${cell.empty ? ' empty' : ` ${cell.status}`}${cell.day === today ? ' today' : ''}`}
+            className={`calendar-day${cell.empty ? ' empty' : ` ${cell.status}`}${cell.isToday ? ' today' : ''}`}
           >
             {cell.empty ? '' : cell.day}
           </div>
