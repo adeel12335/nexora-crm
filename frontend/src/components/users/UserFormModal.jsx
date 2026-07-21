@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
 import { Icon } from '../../icons/IconSprite.jsx';
+import FancySelect from '../filters/FancySelect.jsx';
 
 const ROLES = ['admin', 'manager', 'agent', 'production'];
 const EARNING_ROLES = ['agent', 'manager'];
@@ -65,8 +66,10 @@ export default function UserFormModal({ user, managers, onClose, onSaved }) {
   const [team, setTeam] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
 
-  const set = (key) => (e) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const set = (key) => (eOrValue) => {
+    const value = eOrValue?.target
+      ? (eOrValue.target.type === 'checkbox' ? eOrValue.target.checked : eOrValue.target.value)
+      : eOrValue;
     setForm((f) => ({ ...f, [key]: value }));
     setError('');
   };
@@ -310,9 +313,14 @@ export default function UserFormModal({ user, managers, onClose, onSaved }) {
                 </label>
                 <label>
                   Role
-                  <select className="rate-select modal-select" value={form.role} onChange={set('role')}>
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  <FancySelect
+                    fullWidth
+                    value={form.role}
+                    onChange={set('role')}
+                    options={ROLES.map((r) => ({ value: r, label: r }))}
+                    placeholder="Select role…"
+                    aria-label="Role"
+                  />
                 </label>
               </div>
 
@@ -351,14 +359,17 @@ export default function UserFormModal({ user, managers, onClose, onSaved }) {
                     {!isManagerRole && (
                       <label>
                         Reports to
-                        <select className="rate-select modal-select" value={form.managerId} onChange={set('managerId')}>
-                          <option value="">— no manager —</option>
-                          {managers
+                        <FancySelect
+                          fullWidth
+                          isClearable
+                          value={form.managerId}
+                          onChange={set('managerId')}
+                          placeholder="No manager"
+                          aria-label="Reports to"
+                          options={managers
                             .filter((m) => m.id !== user?.id)
-                            .map((m) => (
-                              <option key={m.id} value={String(m.id)}>{m.name}</option>
-                            ))}
-                        </select>
+                            .map((m) => ({ value: String(m.id), label: m.name }))}
+                        />
                       </label>
                     )}
                     <label>

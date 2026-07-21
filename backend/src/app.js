@@ -10,11 +10,12 @@ import { clientsRoutes } from './routes/clients.routes.js';
 import { whatsappRoutes } from './routes/whatsapp.routes.js';
 import { notificationsRoutes } from './routes/notifications.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
+import { productionRoutes } from './routes/production.routes.js';
 
 export const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -34,6 +35,7 @@ app.use('/api/clients', clientsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/production', productionRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

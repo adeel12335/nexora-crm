@@ -3,6 +3,7 @@ import { Icon } from '../../icons/IconSprite.jsx';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import FancySelect from '../../components/filters/FancySelect.jsx';
 
 const TABS = [
   { id: 'whatsapp', label: 'WhatsApp', icon: 'i-whatsapp' },
@@ -240,17 +241,19 @@ export default function AdminSettings() {
               {groups.length > 0 && (
                 <label>
                   Or pick a synced group
-                  <select
+                  <FancySelect
+                    fullWidth
+                    isClearable
                     value=""
-                    onChange={(e) => {
-                      if (e.target.value) setWaForm({ ...waForm, groupJid: e.target.value });
+                    onChange={(id) => {
+                      if (id) setWaForm({ ...waForm, groupJid: id });
                     }}
-                  >
-                    <option value="">Select group…</option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>{g.name} — {g.id}</option>
-                    ))}
-                  </select>
+                    placeholder="Search WhatsApp group…"
+                    options={groups.map((g) => ({
+                      value: g.id,
+                      label: `${g.name} — ${g.id}`,
+                    }))}
+                  />
                 </label>
               )}
 

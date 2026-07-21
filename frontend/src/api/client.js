@@ -98,6 +98,7 @@ export const api = {
     } else {
       if (query.q) params.set('q', query.q);
       if (query.agentId) params.set('agentId', String(query.agentId));
+      if (query.productionStatus) params.set('productionStatus', String(query.productionStatus));
       if (query.dateFrom) params.set('dateFrom', query.dateFrom);
       if (query.dateTo) params.set('dateTo', query.dateTo);
       if (query.page) params.set('page', String(query.page));
@@ -112,6 +113,10 @@ export const api = {
     request(`/clients/${id}`, { method: 'PATCH', body, token }),
   addClientPayment: (token, id, body) =>
     request(`/clients/${id}/payments`, { method: 'POST', body, token }),
+  updateClientPayment: (token, id, paymentId, body) =>
+    request(`/clients/${id}/payments/${paymentId}`, { method: 'PATCH', body, token }),
+  deleteClientPayment: (token, id, paymentId) =>
+    request(`/clients/${id}/payments/${paymentId}`, { method: 'DELETE', token }),
 
   // --- commission earnings + cycle policy ---
   commissionCycle: (token, date) =>
@@ -160,6 +165,21 @@ export const api = {
     request(`/notifications/${id}/read`, { method: 'PATCH', token }),
   markAllNotificationsRead: (token) =>
     request('/notifications/read-all', { method: 'POST', token }),
+
+  // --- production board ---
+  listProductionCards: (token, query = {}) => {
+    const params = new URLSearchParams();
+    if (query.stage) params.set('stage', query.stage);
+    const q = params.toString();
+    return request(`/production/cards${q ? `?${q}` : ''}`, { token });
+  },
+  createProductionCard: (token, body) =>
+    request('/production/cards', { method: 'POST', body, token }),
+  updateProductionCard: (token, id, body) =>
+    request(`/production/cards/${id}`, { method: 'PATCH', body, token }),
+  deleteProductionCard: (token, id) =>
+    request(`/production/cards/${id}`, { method: 'DELETE', token }),
+  listPortfolio: (token) => request('/production/portfolio', { token }),
 
   // --- portal settings (admin) ---
   getPortalSettings: (token) => request('/settings', { token }),

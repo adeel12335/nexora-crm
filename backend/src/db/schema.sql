@@ -43,16 +43,21 @@ CREATE TABLE IF NOT EXISTS production_cards (
   id INT AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(200) NOT NULL,
   client VARCHAR(160) NOT NULL,
+  client_id INT NULL,
   type ENUM('draft', 'revision') NOT NULL,
   stage ENUM('new_draft', 'in_progress', 'revision', 'review', 'live', 'done') NOT NULL DEFAULT 'new_draft',
   assignee_id INT NOT NULL,
   priority TINYINT(1) NOT NULL DEFAULT 0,
+  priority_key VARCHAR(20) NOT NULL DEFAULT 'none',
   comments_count INT NOT NULL DEFAULT 0,
   attachments_count INT NOT NULL DEFAULT 0,
   description TEXT NULL,
+  live_url VARCHAR(500) NULL,
+  extras_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   due_date DATETIME NOT NULL,
-  CONSTRAINT fk_card_assignee FOREIGN KEY (assignee_id) REFERENCES users(id)
+  CONSTRAINT fk_card_assignee FOREIGN KEY (assignee_id) REFERENCES users(id),
+  CONSTRAINT fk_card_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS production_card_activity (

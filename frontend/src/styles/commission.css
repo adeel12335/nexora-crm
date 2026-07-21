@@ -203,6 +203,19 @@
   min-width: 170px;
   justify-content: center;
 }
+.fancy-select--full {
+  min-width: 0;
+  width: 100%;
+}
+.fancy-select--full .portal-select__control {
+  width: 100%;
+}
+label .fancy-select,
+.field .fancy-select,
+.form-grid .fancy-select {
+  width: 100%;
+  min-width: 0;
+}
 .toolbar-fancy-select {
   min-width: 180px;
 }

@@ -13,6 +13,10 @@ export default function TableToolbar({
   agentId,
   onAgentId,
   agentLabel = 'Agent',
+  statusOptions,
+  status,
+  onStatus,
+  statusPlaceholder = 'All statuses',
   dateFrom,
   dateTo,
   onDateFrom,
@@ -28,6 +32,7 @@ export default function TableToolbar({
   const agentOptions = showAgent
     ? agents.map((a) => ({ value: String(a.id), label: a.name }))
     : [];
+  const showStatus = Array.isArray(statusOptions) && onStatus;
 
   return (
     <div className="heading-tools table-toolbar">
@@ -49,6 +54,19 @@ export default function TableToolbar({
           placeholder={`All ${agentLabel.toLowerCase()}s`}
           aria-label={agentLabel}
           className="toolbar-fancy-select"
+          isClearable
+        />
+      ) : null}
+
+      {showStatus ? (
+        <FancySelect
+          value={status}
+          onChange={onStatus}
+          options={statusOptions}
+          placeholder={statusPlaceholder}
+          aria-label="Status"
+          className="toolbar-fancy-select"
+          isClearable
         />
       ) : null}
 

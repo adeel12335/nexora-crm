@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
+import FancySelect from '../filters/FancySelect.jsx';
 import KanbanColumn from './KanbanColumn.jsx';
 import CardDrawer from './CardDrawer.jsx';
 import NewCardModal from './NewCardModal.jsx';
 import { avatarPool, productionStages } from '../../data/mockData.js';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
-import { isHighPriority } from '../../utils/boardValidation.js';
+import { isHighPriority, validateFiles, MAX_FILES_PER_CARD } from '../../utils/boardValidation.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
 
-let nextId = 1000;
 let nextFileId = 5000;
 
 function toAssignee(user) {
@@ -26,6 +26,9 @@ function hydrateCard(card) {
   return {
     ...card,
     priority: card.priority === true ? 'high' : (card.priority || 'none'),
+    liveUrl: card.liveUrl || '',
+    clientId: card.clientId ?? null,
+    clientAgentName: card.clientAgentName || null,
     commentList: (card.commentList || []).map((c) => ({ ...c, kind: c.kind || 'comment' })),
     fileList: (card.fileList || []).map((f) => ({ ...f })),
     feedback: card.feedback || { status: 'none', note: '', rating: null, updatedAt: null, author: null },
@@ -43,11 +46,17 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function hasLiveLink(card) {
+  return Boolean(String(card?.liveUrl || '').trim());
+}
+
 export default function KanbanBoard() {
   const { token, user } = useAuth();
   const { showToast } = useToast();
   const [cards, setCards] = useState([]);
   const [assignees, setAssignees] = useState([]);
+  const [crmClients, setCrmClients] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [query, setQuery] = useState('');
@@ -59,24 +68,40 @@ export default function KanbanBoard() {
   const [mobileStage, setMobileStage] = useState(productionStages[0].id);
   const [activityByCard, setActivityByCard] = useState({});
 
+  const loadCards = useCallback(async () => {
+    if (!token) return;
+    const data = await api.listProductionCards(token);
+    setCards((data.cards || []).map(hydrateCard));
+  }, [token]);
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const data = await api.listUsers(token, '?includeInactive=0&pageSize=100');
-        const users = (data.users || data || []).filter((u) =>
-          ['agent', 'manager', 'production', 'admin'].includes(u.role)
+        const [usersData, clientsData] = await Promise.all([
+          api.listUsers(token, '?includeInactive=0&pageSize=200'),
+          api.listClients(token, { pageSize: 500 }),
+        ]);
+        if (cancelled) return;
+        const users = (usersData.users || usersData || []).filter((u) =>
+          u.isActive !== false && ['agent', 'manager', 'production', 'admin'].includes(u.role)
         );
-        if (!cancelled) setAssignees(users.map(toAssignee));
-      } catch {
-        if (!cancelled && user) {
-          setAssignees([toAssignee({ id: user.id, name: user.name, email: user.email })]);
+        setAssignees(users.map(toAssignee));
+        setCrmClients((clientsData.clients || []).filter((c) => c.isActive !== false));
+        await loadCards();
+      } catch (err) {
+        if (!cancelled) {
+          showToast(err.message || 'Could not load board');
+          if (user) setAssignees([toAssignee({ id: user.id, name: user.name, email: user.email })]);
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [token, user]);
+  }, [token, user, loadCards, showToast]);
 
   const selectedCard = cards.find((c) => c.id === selectedId) || null;
   const selectedStage = productionStages.find((s) => s.id === selectedCard?.stage);
@@ -91,14 +116,32 @@ export default function KanbanBoard() {
     }));
   }
 
-  function patchCard(cardId, patch) {
-    setCards((prev) => prev.map((item) => {
-      if (item.id !== cardId) return item;
-      const next = { ...item, ...patch };
-      if (patch.commentList) next.comments = patch.commentList.length;
-      if (patch.fileList) next.attachments = patch.fileList.length;
-      return next;
-    }));
+  function replaceCard(updated) {
+    const next = hydrateCard(updated);
+    setCards((prev) => prev.map((item) => (item.id === next.id ? next : item)));
+    return next;
+  }
+
+  async function persistCard(cardId, patch) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return null;
+    const body = {
+      title: patch.title ?? card.title,
+      client: patch.client ?? card.client,
+      clientId: patch.clientId !== undefined ? patch.clientId : card.clientId,
+      type: patch.type ?? card.type,
+      stage: patch.stage ?? card.stage,
+      assigneeId: patch.assignee?.id ?? patch.assigneeId ?? card.assignee.id,
+      priority: patch.priority ?? card.priority,
+      description: patch.description !== undefined ? patch.description : card.description,
+      dueDate: patch.dueDate ?? card.dueDate,
+      liveUrl: patch.liveUrl !== undefined ? patch.liveUrl : card.liveUrl,
+      commentList: patch.commentList ?? card.commentList,
+      fileList: patch.fileList ?? card.fileList,
+      feedback: patch.feedback ?? card.feedback,
+    };
+    const data = await api.updateProductionCard(token, cardId, body);
+    return replaceCard(data.card);
   }
 
   function visibleCards(stageId) {
@@ -129,14 +172,25 @@ export default function KanbanBoard() {
     setDraggingId(null);
   }
 
-  function moveCard(cardId, stageId) {
+  async function moveCard(cardId, stageId) {
     const card = cards.find((item) => item.id === cardId);
     if (!card || card.stage === stageId) return;
+
+    if (stageId === 'live' && !hasLiveLink(card)) {
+      showToast('Add the live link on the card first, then move to Live');
+      handleSelect(cardId);
+      return;
+    }
+
     const fromTitle = productionStages.find((stage) => stage.id === card.stage)?.title;
     const toTitle = productionStages.find((stage) => stage.id === stageId)?.title;
-    setCards((previous) => previous.map((item) => (item.id === cardId ? { ...item, stage: stageId } : item)));
-    pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
-    showToast(`Moved "${card.title}" → ${toTitle}`);
+    try {
+      await persistCard(cardId, { stage: stageId });
+      pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
+      showToast(`Moved "${card.title}" → ${toTitle}`);
+    } catch (err) {
+      showToast(err.message || 'Could not move card');
+    }
   }
 
   function handleDrop(stageId) {
@@ -150,39 +204,74 @@ export default function KanbanBoard() {
     setModalOpen(true);
   }
 
-  function handleCreateCard(form) {
-    const id = nextId++;
+  async function handleCreateCard(form) {
     const createdAt = new Date().toISOString();
-    const card = hydrateCard({
-      id,
-      stage: form.stage,
-      type: form.type,
-      title: form.title.trim(),
-      client: form.client.trim(),
-      assignee: form.assignee,
-      createdAt,
-      dueDate: form.dueDate,
-      priority: form.priority || 'none',
-      commentList: [],
-      fileList: [],
-      description: String(form.description || '').trim() || 'New production item created from The Wiki Studio portal.',
-      feedback: { status: 'none', note: '', rating: null, updatedAt: null, author: null },
-    });
-    setCards((prev) => [...prev, card]);
-    setSelectedId(id);
-    setDrawerOpen(true);
-    setModalOpen(false);
-    pushActivity(id, 'created this card');
-    showToast('New production card created');
+    const rawFiles = Array.from(form.files || []);
+    let fileList = [];
+    if (rawFiles.length) {
+      try {
+        fileList = await Promise.all(rawFiles.map(async (file) => ({
+          id: nextFileId++,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          url: await readFileAsDataUrl(file),
+          uploadedAt: createdAt,
+        })));
+      } catch (err) {
+        showToast(err.message || 'Could not attach files');
+        throw err;
+      }
+    }
+
+    try {
+      const data = await api.createProductionCard(token, {
+        title: form.title.trim(),
+        client: form.client.trim(),
+        clientId: form.clientId || null,
+        type: form.type,
+        stage: form.stage,
+        assigneeId: form.assignee?.id || form.assigneeId,
+        priority: form.priority || 'none',
+        description: String(form.description || '').trim() || 'New production item created from The Wiki Studio portal.',
+        dueDate: form.dueDate,
+        liveUrl: form.liveUrl || '',
+        fileList,
+        commentList: [],
+      });
+      const card = hydrateCard(data.card);
+      setCards((prev) => [...prev, card]);
+      setSelectedId(card.id);
+      setDrawerOpen(true);
+      setModalOpen(false);
+      pushActivity(card.id, 'created this card');
+      if (fileList.length) {
+        pushActivity(card.id, `uploaded ${fileList.length} file${fileList.length > 1 ? 's' : ''}`);
+      }
+      showToast(
+        fileList.length
+          ? `Card created with ${fileList.length} file${fileList.length > 1 ? 's' : ''}`
+          : 'New production card created',
+      );
+    } catch (err) {
+      showToast(err.message || 'Could not create card');
+      throw err;
+    }
   }
 
-  function handleUpdateCard(cardId, patch) {
-    patchCard(cardId, patch);
-    pushActivity(cardId, 'updated card details');
-    showToast('Card updated');
+  async function handleUpdateCard(cardId, patch) {
+    try {
+      await persistCard(cardId, patch);
+      pushActivity(cardId, 'updated card details');
+      showToast('Card updated');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Could not update card');
+      return false;
+    }
   }
 
-  function handleAddComment(text) {
+  async function handleAddComment(text) {
     if (!selectedCard) return;
     const entry = {
       id: Date.now(),
@@ -194,15 +283,27 @@ export default function KanbanBoard() {
       createdAt: new Date().toISOString(),
     };
     const commentList = [entry, ...(selectedCard.commentList || [])];
-    patchCard(selectedCard.id, { commentList });
-    showToast('Comment added');
+    try {
+      await persistCard(selectedCard.id, { commentList });
+      pushActivity(selectedCard.id, 'added a comment');
+    } catch (err) {
+      showToast(err.message || 'Could not save comment');
+    }
   }
 
   async function handleUploadFiles(cardId, files) {
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
+    const existing = card.fileList || [];
+    const existingBytes = existing.reduce((sum, f) => sum + Number(f.size || 0), 0);
+    const { ok, errors } = validateFiles(files, existing.length, existingBytes);
+    if (!ok.length) {
+      showToast(errors[0] || 'Upload blocked');
+      return;
+    }
+    if (errors.length) showToast(errors[0]);
     try {
-      const uploaded = await Promise.all(files.map(async (file) => ({
+      const uploaded = await Promise.all(ok.map(async (file) => ({
         id: nextFileId++,
         name: file.name,
         size: file.size,
@@ -210,8 +311,8 @@ export default function KanbanBoard() {
         url: await readFileAsDataUrl(file),
         uploadedAt: new Date().toISOString(),
       })));
-      const fileList = [...uploaded, ...(card.fileList || [])];
-      patchCard(cardId, { fileList });
+      const fileList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
+      await persistCard(cardId, { fileList });
       pushActivity(cardId, `uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`);
       showToast(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`);
     } catch (err) {
@@ -219,20 +320,30 @@ export default function KanbanBoard() {
     }
   }
 
-  function handleRemoveFile(cardId, fileId) {
+  async function handleRemoveFile(cardId, fileId) {
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
     const removed = (card.fileList || []).find((f) => f.id === fileId);
     const fileList = (card.fileList || []).filter((f) => f.id !== fileId);
-    patchCard(cardId, { fileList });
-    if (removed) pushActivity(cardId, `removed ${removed.name}`);
-    showToast('Attachment removed');
+    try {
+      await persistCard(cardId, { fileList });
+      if (removed) pushActivity(cardId, `removed ${removed.name}`);
+      showToast('Attachment removed');
+    } catch (err) {
+      showToast(err.message || 'Could not remove file');
+    }
   }
 
-  function handleSaveFeedback(cardId, feedback) {
-    patchCard(cardId, { feedback });
-    pushActivity(cardId, `set feedback to "${feedback.status.replaceAll('_', ' ')}"`);
-    showToast('Feedback saved');
+  async function handleSaveFeedback(cardId, feedback) {
+    try {
+      await persistCard(cardId, { feedback });
+      pushActivity(cardId, `set feedback to "${feedback.status.replaceAll('_', ' ')}"`);
+      showToast('Feedback saved');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Could not save feedback');
+      return false;
+    }
   }
 
   const comments = selectedCard?.commentList || [];
@@ -270,6 +381,8 @@ export default function KanbanBoard() {
         </div>
       </div>
 
+      {loading ? <p className="commission-note">Loading board…</p> : null}
+
       {filterOpen && (
         <div className="filter-strip">
           {filters.map((f) => (
@@ -282,11 +395,15 @@ export default function KanbanBoard() {
 
       <label className="mobile-stage-picker">
         Production stage
-        <select value={mobileStage} onChange={(event) => setMobileStage(event.target.value)}>
-          {productionStages.map((stage) => (
-            <option key={stage.id} value={stage.id}>{stage.title} ({visibleCards(stage.id).length})</option>
-          ))}
-        </select>
+        <FancySelect
+          fullWidth
+          value={mobileStage}
+          onChange={setMobileStage}
+          options={productionStages.map((stage) => ({
+            value: stage.id,
+            label: `${stage.title} (${visibleCards(stage.id).length})`,
+          }))}
+        />
       </label>
 
       <div className="kanban kanban-six">
@@ -321,6 +438,7 @@ export default function KanbanBoard() {
         onSaveFeedback={handleSaveFeedback}
         stages={productionStages}
         assignees={assignees}
+        crmClients={crmClients}
         onMove={(stageId) => selectedCard && moveCard(selectedCard.id, stageId)}
       />
       {drawerOpen && <div className="scrim visible" onClick={() => setDrawerOpen(false)} />}
@@ -329,6 +447,7 @@ export default function KanbanBoard() {
         open={modalOpen}
         stages={productionStages}
         assignees={assignees}
+        crmClients={crmClients}
         defaultStage={modalStage}
         onClose={() => setModalOpen(false)}
         onCreate={handleCreateCard}

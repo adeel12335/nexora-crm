@@ -8,6 +8,24 @@ import {
 } from '../utils/commissionCycle.js';
 import { karachiWorkDate } from '../utils/karachiTime.js';
 
+const PRODUCTION_STATUSES = new Set(['pending', 'in_production', 'done']);
+
+export const PAYMENT_METHODS = [
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'card', label: 'Credit / Debit card' },
+  { value: 'payoneer', label: 'Payoneer' },
+  { value: 'wise', label: 'Wise' },
+  { value: 'zelle', label: 'Zelle' },
+];
+
+const PAYMENT_METHOD_SET = new Set(PAYMENT_METHODS.map((m) => m.value));
+
+function paymentMethodLabel(value) {
+  return PAYMENT_METHODS.find((m) => m.value === value)?.label || null;
+}
+
 function toClient(row) {
   return {
     id: row.id,
@@ -21,17 +39,21 @@ function toClient(row) {
     balance: money(Number(row.deal_amount) - Number(row.total_paid ?? 0)),
     notes: row.notes,
     isActive: Boolean(row.is_active),
+    productionStatus: row.production_status || 'pending',
     createdAt: row.created_at,
   };
 }
 
 function toPayment(row) {
+  const method = row.payment_method || null;
   return {
     id: row.id,
     clientId: row.client_id,
     clientName: row.client_name ?? null,
     amount: money(row.amount),
     paymentDate: row.payment_date,
+    paymentMethod: method,
+    paymentMethodLabel: paymentMethodLabel(method),
     notes: row.notes,
     recordedBy: row.recorded_by,
     createdAt: row.created_at,
@@ -47,7 +69,7 @@ const CLIENT_SELECT = `
 `;
 
 async function assertClientAccess(req, clientRow) {
-  if (req.user.role === 'admin') return;
+  if (req.user.role === 'admin' || req.user.role === 'production') return;
   if (req.user.role === 'agent') {
     if (Number(clientRow.agent_id) !== Number(req.user.id)) {
       const err = new Error('Forbidden');
@@ -74,7 +96,7 @@ async function assertClientAccess(req, clientRow) {
 }
 
 function clientScopeSql(req) {
-  if (req.user.role === 'admin') {
+  if (req.user.role === 'admin' || req.user.role === 'production') {
     return { clause: '', params: [] };
   }
   if (req.user.role === 'agent') {
@@ -142,21 +164,26 @@ async function createCommissionEntries(conn, { paymentId, clientId, agentId, man
 }
 
 /**
- * GET /api/clients?q=&agentId=&dateFrom=&dateTo=&page=&pageSize=
+ * GET /api/clients?q=&agentId=&dateFrom=&dateTo=&productionStatus=&page=&pageSize=
  * dateFrom/dateTo filter on client created_at (YYYY-MM-DD).
  * Omit pageSize (or pass 0) to return every match.
  */
 export async function listClients(req, res) {
-  const { q, agentId, dateFrom, dateTo } = req.query;
+  const { q, agentId, dateFrom, dateTo, productionStatus } = req.query;
   const page = Math.max(1, Number(req.query.page) || 1);
   const rawSize = req.query.pageSize === undefined ? 0 : Number(req.query.pageSize);
-  const pageSize = Number.isFinite(rawSize) && rawSize > 0 ? Math.min(100, Math.floor(rawSize)) : 0;
+  const pageSize = Number.isFinite(rawSize) && rawSize > 0 ? Math.min(500, Math.floor(rawSize)) : 0;
 
   let where = 'WHERE 1=1';
   const filterParams = [];
   const scope = clientScopeSql(req);
   where += scope.clause;
   filterParams.push(...scope.params);
+
+  const includeInactive = String(req.query.includeInactive || '') === '1';
+  if (!includeInactive) {
+    where += ' AND c.is_active = 1';
+  }
   if (q) {
     where += ` AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)`;
     const like = `%${q}%`;
@@ -165,6 +192,10 @@ export async function listClients(req, res) {
   if (agentId && req.user.role === 'admin') {
     where += ` AND c.agent_id = ?`;
     filterParams.push(Number(agentId));
+  }
+  if (productionStatus && PRODUCTION_STATUSES.has(String(productionStatus))) {
+    where += ` AND c.production_status = ?`;
+    filterParams.push(String(productionStatus));
   }
   if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
     where += ` AND DATE(c.created_at) >= ?`;
@@ -310,10 +341,19 @@ export async function updateClient(req, res) {
     req.body.dealAmount !== undefined ? money(req.body.dealAmount) : money(existing.deal_amount);
   if (dealAmount < 0) return res.status(400).json({ error: 'dealAmount cannot be negative' });
 
+  let productionStatus = existing.production_status || 'pending';
+  if (req.body.productionStatus !== undefined) {
+    const nextStatus = String(req.body.productionStatus);
+    if (!PRODUCTION_STATUSES.has(nextStatus)) {
+      return res.status(400).json({ error: 'Invalid productionStatus' });
+    }
+    productionStatus = nextStatus;
+  }
+
   await pool.query(
     `UPDATE clients SET
        name = ?, email = ?, phone = ?, agent_id = ?, deal_amount = ?, notes = ?,
-       is_active = ?
+       is_active = ?, production_status = ?
      WHERE id = ?`,
     [
       name,
@@ -335,6 +375,7 @@ export async function updateClient(req, res) {
           : null
         : existing.notes,
       req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : existing.is_active,
+      productionStatus,
       req.params.id,
     ]
   );
@@ -358,6 +399,18 @@ export async function addPayment(req, res) {
   const amount = money(req.body.amount);
   if (!(amount > 0)) return res.status(400).json({ error: 'amount must be greater than 0' });
 
+  const [[paidRow]] = await pool.query(
+    'SELECT COALESCE(SUM(amount), 0) AS total_paid FROM client_payments WHERE client_id = ?',
+    [clientId]
+  );
+  const alreadyPaid = money(paidRow?.total_paid ?? 0);
+  const deal = money(client.deal_amount);
+  if (alreadyPaid + amount > deal + 0.009) {
+    return res.status(400).json({
+      error: `Payment would exceed deal amount (paid ${alreadyPaid}, deal ${deal})`,
+    });
+  }
+
   const paymentDate = req.body.paymentDate
     ? String(req.body.paymentDate).slice(0, 10)
     : karachiWorkDate();
@@ -365,17 +418,38 @@ export async function addPayment(req, res) {
     return res.status(400).json({ error: 'paymentDate must be YYYY-MM-DD' });
   }
 
+  let notes = req.body.notes ? String(req.body.notes).trim() : null;
+  const paymentLink = req.body.paymentLink ? String(req.body.paymentLink).trim() : '';
+  if (paymentLink) {
+    if (!/^https?:\/\/.+/i.test(paymentLink)) {
+      return res.status(400).json({ error: 'paymentLink must be a valid http(s) URL' });
+    }
+    const linkLine = `Payment link: ${paymentLink}`;
+    notes = notes ? `${notes}\n${linkLine}` : linkLine;
+  }
+
+  const paymentMethod = req.body.paymentMethod
+    ? String(req.body.paymentMethod).trim().toLowerCase()
+    : null;
+  if (paymentMethod && !PAYMENT_METHOD_SET.has(paymentMethod)) {
+    return res.status(400).json({ error: 'Invalid paymentMethod' });
+  }
+  if (!paymentMethod) {
+    return res.status(400).json({ error: 'paymentMethod is required' });
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const [result] = await conn.query(
-      `INSERT INTO client_payments (client_id, amount, payment_date, notes, recorded_by)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO client_payments (client_id, amount, payment_date, payment_method, notes, recorded_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         amount,
         paymentDate,
-        req.body.notes ? String(req.body.notes).trim() : null,
+        paymentMethod,
+        notes,
         req.user.id,
       ]
     );
@@ -400,6 +474,150 @@ export async function addPayment(req, res) {
   } finally {
     conn.release();
   }
+}
+
+/** PATCH /api/clients/:id/payments/:paymentId */
+export async function updatePayment(req, res) {
+  const clientId = Number(req.params.id);
+  const paymentId = Number(req.params.paymentId);
+
+  const [[client]] = await pool.query(
+    `SELECT c.*, u.manager_id
+     FROM clients c
+     JOIN users u ON u.id = c.agent_id
+     WHERE c.id = ?`,
+    [clientId]
+  );
+  if (!client) return res.status(404).json({ error: 'Client not found' });
+
+  const [[existing]] = await pool.query(
+    `SELECT * FROM client_payments WHERE id = ? AND client_id = ?`,
+    [paymentId, clientId]
+  );
+  if (!existing) return res.status(404).json({ error: 'Payment not found' });
+
+  const amount =
+    req.body.amount !== undefined ? money(req.body.amount) : money(existing.amount);
+  if (!(amount > 0)) return res.status(400).json({ error: 'amount must be greater than 0' });
+
+  const [[paidRow]] = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS total_paid
+     FROM client_payments WHERE client_id = ? AND id <> ?`,
+    [clientId, paymentId]
+  );
+  const otherPaid = money(paidRow?.total_paid ?? 0);
+  const deal = money(client.deal_amount);
+  if (otherPaid + amount > deal + 0.009) {
+    return res.status(400).json({
+      error: `Payment would exceed deal amount (other paid ${otherPaid}, deal ${deal})`,
+    });
+  }
+
+  const paymentDate = req.body.paymentDate
+    ? String(req.body.paymentDate).slice(0, 10)
+    : String(existing.payment_date).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
+    return res.status(400).json({ error: 'paymentDate must be YYYY-MM-DD' });
+  }
+
+  const notes =
+    req.body.notes !== undefined
+      ? req.body.notes
+        ? String(req.body.notes).trim()
+        : null
+      : existing.notes;
+
+  let paymentMethod = existing.payment_method || null;
+  if (req.body.paymentMethod !== undefined) {
+    const nextMethod = req.body.paymentMethod
+      ? String(req.body.paymentMethod).trim().toLowerCase()
+      : null;
+    if (nextMethod && !PAYMENT_METHOD_SET.has(nextMethod)) {
+      return res.status(400).json({ error: 'Invalid paymentMethod' });
+    }
+    if (!nextMethod) {
+      return res.status(400).json({ error: 'paymentMethod is required' });
+    }
+    paymentMethod = nextMethod;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query(
+      `UPDATE client_payments
+       SET amount = ?, payment_date = ?, payment_method = ?, notes = ?
+       WHERE id = ? AND client_id = ?`,
+      [amount, paymentDate, paymentMethod, notes, paymentId, clientId]
+    );
+
+    const [[hadCommission]] = await conn.query(
+      `SELECT id FROM commission_entries WHERE payment_id = ? LIMIT 1`,
+      [paymentId]
+    );
+    if (hadCommission) {
+      await conn.query(`DELETE FROM commission_entries WHERE payment_id = ?`, [paymentId]);
+      await createCommissionEntries(conn, {
+        paymentId,
+        clientId,
+        agentId: client.agent_id,
+        managerId: client.manager_id,
+        amount,
+        paymentDate,
+      });
+    }
+
+    await conn.commit();
+
+    const [[row]] = await pool.query(`${CLIENT_SELECT} WHERE c.id = ?`, [clientId]);
+    const [[payment]] = await pool.query('SELECT * FROM client_payments WHERE id = ?', [paymentId]);
+
+    res.json({
+      payment: toPayment(payment),
+      client: toClient(row),
+      commissionRecalculated: Boolean(hadCommission),
+      message: hadCommission
+        ? 'Payment updated. Linked commission was recalculated.'
+        : 'Payment updated.',
+    });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/** DELETE /api/clients/:id/payments/:paymentId */
+export async function deletePayment(req, res) {
+  const clientId = Number(req.params.id);
+  const paymentId = Number(req.params.paymentId);
+
+  const [[existing]] = await pool.query(
+    `SELECT id FROM client_payments WHERE id = ? AND client_id = ?`,
+    [paymentId, clientId]
+  );
+  if (!existing) return res.status(404).json({ error: 'Payment not found' });
+
+  const [[hadCommission]] = await pool.query(
+    `SELECT id FROM commission_entries WHERE payment_id = ? LIMIT 1`,
+    [paymentId]
+  );
+
+  await pool.query(`DELETE FROM client_payments WHERE id = ? AND client_id = ?`, [
+    paymentId,
+    clientId,
+  ]);
+
+  const [[row]] = await pool.query(`${CLIENT_SELECT} WHERE c.id = ?`, [clientId]);
+  res.json({
+    ok: true,
+    client: toClient(row),
+    commissionRemoved: Boolean(hadCommission),
+    message: hadCommission
+      ? 'Payment deleted. Linked commission entries were removed.'
+      : 'Payment deleted.',
+  });
 }
 
 /**

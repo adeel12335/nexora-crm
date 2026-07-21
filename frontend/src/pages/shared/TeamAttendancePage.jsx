@@ -131,6 +131,7 @@ export default function TeamAttendancePage() {
               placeholder="All people"
               aria-label="Person"
               className="toolbar-fancy-select"
+              isClearable
             />
           </div>
         </div>

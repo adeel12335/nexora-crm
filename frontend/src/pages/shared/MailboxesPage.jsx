@@ -4,6 +4,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { api } from '../../api/client.js';
 import TableToolbar from '../../components/filters/TableToolbar.jsx';
 import PaginationBar from '../../components/filters/PaginationBar.jsx';
+import FancySelect from '../../components/filters/FancySelect.jsx';
 import { useTableQuery } from '../../hooks/useTableQuery.js';
 
 function currentMonth() {
@@ -170,18 +171,16 @@ export default function MailboxesPage() {
           {canAssign && (
             <label>
               Assign to
-              <select
-                className="rate-select modal-select"
+              <FancySelect
+                fullWidth
                 value={form.userId}
-                onChange={(e) => { setForm((f) => ({ ...f, userId: e.target.value })); setError(''); }}
-              >
-                <option value="">— pick a person —</option>
-                {assignOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.role})
-                  </option>
-                ))}
-              </select>
+                onChange={(userId) => { setForm((f) => ({ ...f, userId })); setError(''); }}
+                placeholder="Search person…"
+                options={assignOptions.map((u) => ({
+                  value: String(u.id),
+                  label: `${u.name} (${u.role})`,
+                }))}
+              />
             </label>
           )}
           <label>
@@ -322,18 +321,27 @@ function MailboxTable({
               {showOwner && (
                 <td>
                   {reassignId === box.id ? (
-                    <select
-                      className="rate-select"
-                      defaultValue={box.userId}
+                    <FancySelect
+                      fullWidth
+                      minWidth={140}
                       autoFocus
-                      disabled={busyId === box.id}
-                      onChange={(e) => onReassign(box, e.target.value)}
-                      onBlur={() => onStartReassign(null)}
-                    >
-                      {assignees.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
-                    </select>
+                      value={String(box.userId)}
+                      isDisabled={busyId === box.id}
+                      onChange={(v) => {
+                        if (v && String(v) !== String(box.userId)) onReassign(box, v);
+                        else onStartReassign(null);
+                      }}
+                      onMenuClose={() => {
+                        // slight delay so click-selection can finish first
+                        setTimeout(() => onStartReassign(null), 150);
+                      }}
+                      options={assignees.map((u) => ({
+                        value: String(u.id),
+                        label: u.name,
+                      }))}
+                      placeholder="Reassign…"
+                      aria-label="Reassign mailbox"
+                    />
                   ) : (
                     <strong>{box.ownerName}</strong>
                   )}

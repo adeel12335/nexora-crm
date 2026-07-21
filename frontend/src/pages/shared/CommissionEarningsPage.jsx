@@ -157,6 +157,7 @@ export default function CommissionEarningsPage() {
                 placeholder="All people"
                 aria-label="Person"
                 className="toolbar-fancy-select"
+                isClearable
               />
             ) : null}
             <div className="toolbar-dates" role="group" aria-label="Payment date range">

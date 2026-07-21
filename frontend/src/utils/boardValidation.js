@@ -1,4 +1,5 @@
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_FILES_PER_CARD = 10;
 const MAX_TITLE = 120;
 const MAX_CLIENT = 80;
@@ -7,7 +8,7 @@ const MAX_COMMENT = 1000;
 const MAX_FEEDBACK = 1000;
 
 const ALLOWED_EXT = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
+  'png', 'jpg', 'jpeg', 'gif', 'webp',
   'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'txt', 'csv', 'zip', 'rar', 'mp4', 'mov', 'webm',
 ]);
@@ -42,7 +43,7 @@ function extOf(name) {
   return parts.length > 1 ? parts.pop() : '';
 }
 
-export function validateCardForm(form, { allowPastDue = false } = {}) {
+export function validateCardForm(form, { allowPastDue = false, requireCrmClient = false } = {}) {
   const errors = [];
   const title = String(form.title || '').trim();
   const client = String(form.client || '').trim();
@@ -53,9 +54,15 @@ export function validateCardForm(form, { allowPastDue = false } = {}) {
   else if (title.length < 3) errors.push('Title must be at least 3 characters');
   else if (title.length > MAX_TITLE) errors.push(`Title cannot exceed ${MAX_TITLE} characters`);
 
-  if (!client) errors.push('Client name is required');
-  else if (client.length < 2) errors.push('Client name must be at least 2 characters');
-  else if (client.length > MAX_CLIENT) errors.push(`Client cannot exceed ${MAX_CLIENT} characters`);
+  if (requireCrmClient && !form.clientId) {
+    errors.push('Select a client from the CRM list');
+  } else if (!client) {
+    errors.push('Client is required');
+  } else if (client.length < 2) {
+    errors.push('Client name must be at least 2 characters');
+  } else if (client.length > MAX_CLIENT) {
+    errors.push(`Client cannot exceed ${MAX_CLIENT} characters`);
+  }
 
   if (!form.type || !['draft', 'revision'].includes(form.type)) {
     errors.push('Pick a valid card type');
@@ -65,6 +72,17 @@ export function validateCardForm(form, { allowPastDue = false } = {}) {
 
   if (description.length > MAX_DESCRIPTION) {
     errors.push(`Description cannot exceed ${MAX_DESCRIPTION} characters`);
+  }
+
+  const liveUrl = String(form.liveUrl || '').trim();
+  if (form.stage === 'live') {
+    if (!liveUrl) errors.push('Live link is required when the card is Live');
+    else if (!/^https?:\/\/.+/i.test(liveUrl.startsWith('http') ? liveUrl : `https://${liveUrl}`)) {
+      errors.push('Enter a valid live link (https://…)');
+    }
+  } else if (liveUrl) {
+    const normalized = liveUrl.startsWith('http') ? liveUrl : `https://${liveUrl}`;
+    if (!/^https?:\/\/.+/i.test(normalized)) errors.push('Enter a valid live link (https://…)');
   }
 
   if (!dueDate) {
@@ -114,17 +132,32 @@ export function validateFeedback({ status, note, rating }) {
   return errors;
 }
 
-export function validateFiles(fileList, existingCount = 0) {
+/**
+ * Validate picked files. Never returns more files than remaining slots.
+ * Caps total bytes so JSON+base64 stays under the API body limit.
+ */
+export function validateFiles(fileList, existingCount = 0, existingBytes = 0) {
   const files = Array.from(fileList || []);
   if (!files.length) return { ok: [], errors: ['Choose at least one file'] };
 
   const errors = [];
-  if (existingCount + files.length > MAX_FILES_PER_CARD) {
-    errors.push(`A card can have at most ${MAX_FILES_PER_CARD} attachments`);
+  const slots = Math.max(0, MAX_FILES_PER_CARD - existingCount);
+  if (slots === 0) {
+    return { ok: [], errors: [`A card can have at most ${MAX_FILES_PER_CARD} attachments`] };
+  }
+
+  let overCap = false;
+  if (files.length > slots) {
+    errors.push(`Only ${slots} more file${slots === 1 ? '' : 's'} allowed (max ${MAX_FILES_PER_CARD})`);
+    overCap = true;
   }
 
   const ok = [];
+  let runningBytes = Number(existingBytes) || 0;
+
   for (const file of files) {
+    if (ok.length >= slots) break;
+
     const ext = extOf(file.name);
     if (!ALLOWED_EXT.has(ext)) {
       errors.push(`"${file.name}" type is not allowed`);
@@ -135,10 +168,19 @@ export function validateFiles(fileList, existingCount = 0) {
       continue;
     }
     if (file.size > MAX_FILE_BYTES) {
-      errors.push(`"${file.name}" exceeds 10 MB`);
+      errors.push(`"${file.name}" exceeds 5 MB`);
       continue;
     }
+    if (runningBytes + file.size > MAX_TOTAL_FILE_BYTES) {
+      errors.push(`Attachments together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
+      break;
+    }
     ok.push(file);
+    runningBytes += file.size;
+  }
+
+  if (overCap && ok.length) {
+    // already noted — ok is truncated to slots
   }
 
   return { ok, errors };
@@ -165,3 +207,5 @@ export function fromDateInputValue(value) {
   const d = new Date(`${value}T17:00:00`);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
+
+export { MAX_FILES_PER_CARD, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };

@@ -509,6 +509,10 @@
 }
 .modal textarea { height: 84px; padding: 10px 12px; resize: vertical; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.new-card-files { display: grid; gap: 10px; }
+.new-card-files-label { color: var(--muted); font-size: 13px; font-weight: 700; }
+.modal .upload-dropzone { min-height: 88px; padding: 16px; }
+.modal .file-list { margin-top: 0; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 4px; }
 .secondary-btn { background: var(--surface-2); }
 
@@ -587,6 +591,94 @@
   .detail-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .detail-tabs button span { font-size: 10px; }
 }
+
+.detail-owner {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.live-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(47, 111, 237, 0.1);
+  color: #2F6FED;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.live-link-chip:hover { background: rgba(47, 111, 237, 0.18); }
+.card-owner {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(47, 111, 237, 0.12);
+  color: #2F6FED;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.live-pill svg { width: 12px; height: 12px; }
+
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.portfolio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.portfolio-card h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.portfolio-card-top {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.portfolio-client {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.portfolio-meta,
+.portfolio-url {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.portfolio-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portfolio-warn { color: var(--orange, #c47a2c); }
+.portfolio-open {
+  margin-top: 4px;
+  justify-content: center;
+  text-decoration: none;
+}
+.empty-panel { padding: 24px; }
+
 @media (max-width: 420px) {
   .board-title-wrap h2 { font-size: 16px; }
   .form-grid { grid-template-columns: 1fr; }

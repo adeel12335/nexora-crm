@@ -141,6 +141,7 @@ export default function UsersPage() {
               placeholder="All roles"
               aria-label="Role"
               className="toolbar-fancy-select"
+              isClearable
             />
             <MonthFilter value={monthDate} onChange={setMonthDate} label={null} placeholder="Rates month" />
             <div className="toolbar-actions">

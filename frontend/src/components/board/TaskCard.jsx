@@ -9,6 +9,7 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
   const feedback = card.feedback?.status;
   const priority = card.priority;
   const showPriority = priority && priority !== 'none';
+  const liveUrl = String(card.liveUrl || '').trim();
 
   return (
     <article
@@ -37,6 +38,9 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
         <strong>{card.title}</strong>
       </div>
       <span className="company">{card.client}</span>
+      {card.clientAgentName ? (
+        <span className="card-owner">Client of {card.clientAgentName}</span>
+      ) : null}
 
       <div className="card-tags">
         <span className={`type-pill ${card.type}`}>{card.type === 'draft' ? 'Draft' : 'Revision'}</span>
@@ -49,6 +53,18 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
           <span className={`feedback-pill feedback-${feedback}`}>
             {feedback === 'approved' ? 'Approved' : feedback === 'changes_requested' ? 'Changes' : 'Pending'}
           </span>
+        ) : null}
+        {card.stage === 'live' && liveUrl ? (
+          <a
+            className="live-pill"
+            href={liveUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={liveUrl}
+          >
+            <Icon id="i-link" /> Live
+          </a>
         ) : null}
       </div>
 

@@ -22,6 +22,7 @@ import CommissionEarningsPage from './pages/shared/CommissionEarningsPage.jsx';
 
 import AgentDashboard from './pages/agent/AgentDashboard.jsx';
 import AgentAttendance from './pages/agent/AgentAttendance.jsx';
+import PortfolioPage from './pages/shared/PortfolioPage.jsx';
 
 import ProductionDashboard from './pages/production/ProductionDashboard.jsx';
 
@@ -58,6 +59,7 @@ export default function App() {
               <Route index element={<ManagerDashboard />} />
               <Route path="attendance" element={<TeamAttendancePage />} />
               <Route path="clients" element={<ClientsPage />} />
+              <Route path="portfolio" element={<PortfolioPage />} />
               <Route path="commissions" element={<TeamCommission />} />
               <Route path="earnings" element={<CommissionEarningsPage />} />
               <Route path="mailboxes" element={<MailboxesPage />} />
@@ -68,6 +70,7 @@ export default function App() {
               <Route index element={<AgentDashboard />} />
               <Route path="attendance" element={<AgentAttendance />} />
               <Route path="clients" element={<ClientsPage />} />
+              <Route path="portfolio" element={<PortfolioPage />} />
               <Route path="earnings" element={<CommissionEarningsPage />} />
               <Route path="mailboxes" element={<MailboxesPage />} />
               <Route path="notifications" element={<NotificationsPage />} />

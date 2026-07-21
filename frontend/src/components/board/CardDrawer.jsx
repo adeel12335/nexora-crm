@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
+import FancySelect from '../filters/FancySelect.jsx';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import BoardAlertModal from './BoardAlertModal.jsx';
 import {
@@ -37,6 +38,7 @@ export default function CardDrawer({
   onSaveFeedback,
   stages,
   assignees = [],
+  crmClients = [],
   onMove,
 }) {
   const fileInputRef = useRef(null);
@@ -57,11 +59,13 @@ export default function CardDrawer({
     setEdit({
       title: card.title,
       client: card.client,
+      clientId: card.clientId ? String(card.clientId) : '',
       description: card.description || '',
       assigneeId: card.assignee.id,
       priority: card.priority || 'none',
       dueDate: toDateInputValue(card.dueDate),
       type: card.type,
+      liveUrl: card.liveUrl || '',
     });
     setFeedbackForm({
       status: card.feedback?.status || 'none',
@@ -97,36 +101,46 @@ export default function CardDrawer({
     setTab(next);
   }
 
-  function handleSaveDetails(e) {
+  async function handleSaveDetails(e) {
     e?.preventDefault?.();
     const people = assignees.length ? assignees : (card.assignee ? [card.assignee] : []);
     const assignee = people.find((a) => a.id === Number(edit.assigneeId)) || card.assignee;
+    const selectedClient = crmClients.find((c) => String(c.id) === String(edit.clientId));
     const payload = {
       title: edit.title,
-      client: edit.client,
+      client: selectedClient?.name || edit.client,
+      clientId: edit.clientId || null,
       description: edit.description,
       type: edit.type,
       stage: card.stage,
       assignee,
       priority: edit.priority,
       dueDate: fromDateInputValue(edit.dueDate),
+      liveUrl: edit.liveUrl,
     };
-    const errors = validateCardForm(payload, { allowPastDue: true });
+    const errors = validateCardForm(payload, {
+      allowPastDue: true,
+      requireCrmClient: crmClients.length > 0,
+    });
     if (errors.length) {
       showErrors('Cannot save card', errors);
       return;
     }
-    onUpdateCard(card.id, {
+    const ok = await onUpdateCard(card.id, {
       title: payload.title.trim(),
       client: payload.client.trim(),
+      clientId: payload.clientId ? Number(payload.clientId) : null,
       description: String(payload.description || '').trim(),
       type: payload.type,
       assignee,
       priority: payload.priority,
       dueDate: payload.dueDate,
+      liveUrl: String(payload.liveUrl || '').trim(),
     });
-    setDirty(false);
-    showErrors('Saved', ['Card details updated.'], 'success');
+    if (ok) {
+      setDirty(false);
+      showErrors('Saved', ['Card details updated.'], 'success');
+    }
   }
 
   function handleCommentSubmit(e) {
@@ -142,8 +156,9 @@ export default function CardDrawer({
 
   function handleFilePick(e) {
     const picked = e.target.files;
-    const { ok, errors } = validateFiles(picked, files.length);
-    if (errors.length && !ok.length) {
+    const existingBytes = files.reduce((sum, f) => sum + Number(f.size || 0), 0);
+    const { ok, errors } = validateFiles(picked, files.length, existingBytes);
+    if (!ok.length) {
       showErrors('Upload blocked', errors);
       e.target.value = '';
       return;
@@ -153,21 +168,21 @@ export default function CardDrawer({
     e.target.value = '';
   }
 
-  function handleFeedbackSave(e) {
+  async function handleFeedbackSave(e) {
     e.preventDefault();
     const errors = validateFeedback(feedbackForm);
     if (errors.length) {
       showErrors('Feedback incomplete', errors);
       return;
     }
-    onSaveFeedback(card.id, {
+    const ok = await onSaveFeedback(card.id, {
       status: feedbackForm.status,
       note: String(feedbackForm.note || '').trim(),
       rating: feedbackForm.rating === '' ? null : Number(feedbackForm.rating),
       updatedAt: new Date().toISOString(),
       author: 'You',
     });
-    showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
+    if (ok) showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
   }
 
   return (
@@ -194,6 +209,14 @@ export default function CardDrawer({
 
           <h2>{card.title}</h2>
           <span className="detail-sub">{card.client}</span>
+          {card.clientAgentName ? (
+            <span className="detail-owner">Client of {card.clientAgentName}</span>
+          ) : null}
+          {card.stage === 'live' && card.liveUrl ? (
+            <a className="live-link-chip" href={card.liveUrl} target="_blank" rel="noreferrer">
+              <Icon id="i-link" /> Open live site
+            </a>
+          ) : null}
 
           <div className="detail-facts">
             <button type="button" className="detail-fact" onClick={() => goTab('details')}>
@@ -248,13 +271,38 @@ export default function CardDrawer({
                 />
               </label>
               <label>
-                Client
-                <input
-                  value={edit.client}
-                  onChange={(e) => updateEdit('client', e.target.value)}
-                  maxLength={80}
-                />
+                Client {crmClients.length ? <span className="field-hint">(required)</span> : null}
+                {crmClients.length ? (
+                  <FancySelect
+                    fullWidth
+                    isClearable
+                    value={edit.clientId}
+                    onChange={(clientId) => {
+                      const selected = crmClients.find((c) => String(c.id) === String(clientId));
+                      setEdit((f) => ({
+                        ...f,
+                        clientId: clientId || '',
+                        client: selected?.name || '',
+                      }));
+                      setDirty(true);
+                    }}
+                    placeholder="Search and select a CRM client…"
+                    options={crmClients.map((c) => ({
+                      value: String(c.id),
+                      label: c.agentName ? `${c.name} · ${c.agentName}` : c.name,
+                    }))}
+                  />
+                ) : (
+                  <input
+                    value={edit.client}
+                    onChange={(e) => updateEdit('client', e.target.value)}
+                    maxLength={80}
+                  />
+                )}
               </label>
+              {crmClients.length && !edit.clientId ? (
+                <p className="muted-hint">Select a client from the CRM list to save.</p>
+              ) : null}
               <label>
                 Description
                 <textarea
@@ -264,31 +312,51 @@ export default function CardDrawer({
                   rows={4}
                 />
               </label>
+              <label>
+                Live link {card.stage === 'live' ? <span className="field-hint">(required)</span> : <span className="field-hint">(for Live / portfolio)</span>}
+                <input
+                  type="url"
+                  value={edit.liveUrl}
+                  onChange={(e) => updateEdit('liveUrl', e.target.value)}
+                  placeholder="https://client-site.com"
+                />
+              </label>
               <div className="form-grid">
                 <label>
                   Type
-                  <select value={edit.type} onChange={(e) => updateEdit('type', e.target.value)}>
-                    <option value="draft">Draft</option>
-                    <option value="revision">Revision</option>
-                  </select>
+                  <FancySelect
+                    fullWidth
+                    value={edit.type}
+                    onChange={(v) => updateEdit('type', v)}
+                    options={[
+                      { value: 'draft', label: 'Draft' },
+                      { value: 'revision', label: 'Revision' },
+                    ]}
+                  />
                 </label>
                 <label>
                   Priority
-                  <select value={edit.priority} onChange={(e) => updateEdit('priority', e.target.value)}>
-                    {PRIORITY_OPTIONS.map((p) => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                  </select>
+                  <FancySelect
+                    fullWidth
+                    value={edit.priority}
+                    onChange={(v) => updateEdit('priority', v)}
+                    options={PRIORITY_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
+                  />
                 </label>
               </div>
               <div className="form-grid">
                 <label>
                   Assignee
-                <select value={edit.assigneeId} onChange={(e) => updateEdit('assigneeId', e.target.value)}>
-                  {(assignees.length ? assignees : (card.assignee ? [card.assignee] : [])).map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
+                  <FancySelect
+                    fullWidth
+                    value={edit.assigneeId}
+                    onChange={(v) => updateEdit('assigneeId', v)}
+                    placeholder="Search assignee…"
+                    options={(assignees.length ? assignees : (card.assignee ? [card.assignee] : [])).map((a) => ({
+                      value: String(a.id),
+                      label: a.name,
+                    }))}
+                  />
                 </label>
                 <label>
                   Due date
@@ -301,11 +369,12 @@ export default function CardDrawer({
               </div>
               <label>
                 Move to stage
-                <select className="stage-select" value={card.stage} onChange={(e) => onMove(e.target.value)}>
-                  {stages.map((item) => (
-                    <option key={item.id} value={item.id}>{item.title}</option>
-                  ))}
-                </select>
+                <FancySelect
+                  fullWidth
+                  value={card.stage}
+                  onChange={onMove}
+                  options={stages.map((item) => ({ value: item.id, label: item.title }))}
+                />
               </label>
             </form>
           )}
@@ -321,7 +390,7 @@ export default function CardDrawer({
               >
                 <Icon id="i-paperclip" />
                 <strong>Click to upload files</strong>
-                <span>Max 10 files · 10 MB each · images, docs, video, zip</span>
+                <span>Max 10 files · 5 MB each · 8 MB total · images, docs, video, zip</span>
               </div>
               <input
                 ref={fileInputRef}
@@ -329,7 +398,7 @@ export default function CardDrawer({
                 multiple
                 hidden
                 onChange={handleFilePick}
-                accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+                accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
               />
               {files.length ? (
                 <ul className="file-list">
@@ -398,26 +467,23 @@ export default function CardDrawer({
               <p className="detail-hint">Set client review status, then save feedback.</p>
               <label>
                 Status
-                <select
+                <FancySelect
+                  fullWidth
                   value={feedbackForm.status}
-                  onChange={(e) => setFeedbackForm((f) => ({ ...f, status: e.target.value }))}
-                >
-                  {FEEDBACK_STATUS.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
+                  onChange={(status) => setFeedbackForm((f) => ({ ...f, status }))}
+                  options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
+                />
               </label>
               <label>
                 Rating (optional)
-                <select
+                <FancySelect
+                  fullWidth
+                  isClearable
                   value={feedbackForm.rating}
-                  onChange={(e) => setFeedbackForm((f) => ({ ...f, rating: e.target.value }))}
-                >
-                  <option value="">No rating</option>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>{n} / 5</option>
-                  ))}
-                </select>
+                  onChange={(rating) => setFeedbackForm((f) => ({ ...f, rating }))}
+                  placeholder="No rating"
+                  options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} / 5` }))}
+                />
               </label>
               <label>
                 Feedback note
