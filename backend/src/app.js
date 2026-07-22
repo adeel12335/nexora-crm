@@ -14,32 +14,40 @@ import { productionRoutes } from './routes/production.routes.js';
 
 export const app = express();
 
-/** Allow Vercel frontend + optional CORS_ORIGINS (comma-separated). */
+/** Allow production portal + Vercel + optional CORS_ORIGINS (comma-separated). */
 const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 const defaultOrigins = [
+  'https://portal.thewikistudio.com',
+  'https://www.portal.thewikistudio.com',
+  'https://thewikistudio.com',
+  'https://www.thewikistudio.com',
   'https://nexora-crm-tau.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
 const allowlist = new Set([...defaultOrigins, ...corsOrigins]);
 
-app.use(cors({
-  origin(origin, cb) {
-    // Same-origin / curl / server-to-server (no Origin header)
-    if (!origin) return cb(null, true);
-    if (allowlist.has(origin)) return cb(null, true);
-    // Reflect any *.vercel.app preview deploy
-    if (/^https:\/\/[\w-]+\.vercel\.app$/i.test(origin)) return cb(null, true);
-    return cb(null, false);
-  },
+function corsOrigin(origin, cb) {
+  // Same-origin / curl / server-to-server (no Origin header)
+  if (!origin) return cb(null, true);
+  if (allowlist.has(origin)) return cb(null, true);
+  // Reflect any *.vercel.app preview deploy
+  if (/^https:\/\/[\w-]+\.vercel\.app$/i.test(origin)) return cb(null, true);
+  return cb(null, false);
+}
+
+const corsOptions = {
+  origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-app.options('*', cors());
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '20mb' }));
 
 /** Load-balancer / uptime probe (no auth). */
