@@ -60,6 +60,19 @@ function sanitizeDescriptionForProduction(description) {
     .trim();
 }
 
+function mapDeliveryList(raw, { light = false } = {}) {
+  const list = Array.isArray(raw) ? raw : [];
+  if (!light) return list;
+  return list.map((item) => {
+    if (item?.kind !== 'file') return item;
+    return {
+      ...item,
+      // Omit base64 data URLs from list payloads (huge).
+      url: typeof item.url === 'string' && item.url.startsWith('data:') ? null : item.url,
+    };
+  });
+}
+
 function toCard(row, { light = false, role = null } = {}) {
   const extras = parseExtras(row.extras_json);
   const assigneeId = row.assignee_id;
@@ -103,6 +116,7 @@ function toCard(row, { light = false, role = null } = {}) {
     attachments: Number(row.attachments_count || 0),
     commentList: light ? (extras.commentList || []).slice(-20) : (extras.commentList || []),
     fileList,
+    deliveryList: mapDeliveryList(extras.deliveryList, { light }),
     feedback: extras.feedback || {
       status: 'none',
       note: '',
@@ -191,7 +205,103 @@ const ALLOWED_FILE_EXT = new Set([
   'txt', 'csv', 'zip', 'rar', 'mp4', 'mov', 'webm',
 ]);
 
-function sanitizeExtras({ commentList, fileList, feedback }) {
+function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment' } = {}) {
+  const name = String(f?.name || '').trim();
+  const size = Number(f?.size || 0);
+  const ext = name.toLowerCase().split('.').pop() || '';
+  if (!name || !ALLOWED_FILE_EXT.has(ext)) {
+    const err = new Error(`${label} "${name || 'file'}" type is not allowed`);
+    err.status = 400;
+    throw err;
+  }
+  if (!(size > 0) || size > 5 * 1024 * 1024) {
+    const err = new Error(`${label} "${name}" must be between 1 byte and 5 MB`);
+    err.status = 400;
+    throw err;
+  }
+  const nextTotal = Number(totalBytes || 0) + size;
+  if (nextTotal > 8 * 1024 * 1024) {
+    const err = new Error(`${label}s together cannot exceed 8 MB`);
+    err.status = 400;
+    throw err;
+  }
+  const url = String(f?.url || '');
+  if (url && !url.startsWith('data:') && !/^https?:\/\//i.test(url)) {
+    const err = new Error(`${label} "${name}" has an invalid URL`);
+    err.status = 400;
+    throw err;
+  }
+  return {
+    file: {
+      id: f.id ?? Date.now(),
+      name,
+      size,
+      type: String(f.type || 'application/octet-stream'),
+      url: url || null,
+      uploadedAt: f.uploadedAt || new Date().toISOString(),
+    },
+    totalBytes: nextTotal,
+  };
+}
+
+function sanitizeDeliveryList(deliveryList) {
+  const itemsIn = Array.isArray(deliveryList) ? deliveryList : [];
+  if (itemsIn.length > 5) {
+    const err = new Error('A card can have at most 5 deliveries');
+    err.status = 400;
+    throw err;
+  }
+
+  const items = [];
+  let totalBytes = 0;
+  for (const raw of itemsIn) {
+    const kind = raw?.kind === 'file' ? 'file' : raw?.kind === 'link' ? 'link' : null;
+    if (!kind) {
+      const err = new Error('Each delivery must be a link or a file');
+      err.status = 400;
+      throw err;
+    }
+    const label = String(raw?.label || '').trim().slice(0, 120);
+    const createdAt = raw.createdAt || new Date().toISOString();
+    const id = raw.id ?? Date.now();
+
+    if (kind === 'link') {
+      const url = normalizeUrl(raw.url);
+      if (!isValidUrl(url)) {
+        const err = new Error('Delivery link must be a valid http(s) URL');
+        err.status = 400;
+        throw err;
+      }
+      items.push({
+        id,
+        kind: 'link',
+        label: label || url,
+        url,
+        createdAt,
+      });
+      continue;
+    }
+
+    const { file, totalBytes: nextBytes } = sanitizeFileAttachment(raw, {
+      totalBytes,
+      label: 'Delivery file',
+    });
+    totalBytes = nextBytes;
+    items.push({
+      id,
+      kind: 'file',
+      label: label || file.name,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      url: file.url,
+      createdAt,
+    });
+  }
+  return items;
+}
+
+function sanitizeExtras({ commentList, fileList, feedback, deliveryList }) {
   const comments = Array.isArray(commentList) ? commentList.slice(0, 200) : [];
   const filesIn = Array.isArray(fileList) ? fileList : [];
   if (filesIn.length > 10) {
@@ -202,39 +312,9 @@ function sanitizeExtras({ commentList, fileList, feedback }) {
   const files = [];
   let totalBytes = 0;
   for (const f of filesIn) {
-    const name = String(f?.name || '').trim();
-    const size = Number(f?.size || 0);
-    const ext = name.toLowerCase().split('.').pop() || '';
-    if (!name || !ALLOWED_FILE_EXT.has(ext)) {
-      const err = new Error(`Attachment "${name || 'file'}" type is not allowed`);
-      err.status = 400;
-      throw err;
-    }
-    if (!(size > 0) || size > 5 * 1024 * 1024) {
-      const err = new Error(`Attachment "${name}" must be between 1 byte and 5 MB`);
-      err.status = 400;
-      throw err;
-    }
-    totalBytes += size;
-    if (totalBytes > 8 * 1024 * 1024) {
-      const err = new Error('Attachments together cannot exceed 8 MB');
-      err.status = 400;
-      throw err;
-    }
-    const url = String(f?.url || '');
-    if (url && !url.startsWith('data:') && !/^https?:\/\//i.test(url)) {
-      const err = new Error(`Attachment "${name}" has an invalid URL`);
-      err.status = 400;
-      throw err;
-    }
-    files.push({
-      id: f.id ?? Date.now(),
-      name,
-      size,
-      type: String(f.type || 'application/octet-stream'),
-      url: url || null,
-      uploadedAt: f.uploadedAt || new Date().toISOString(),
-    });
+    const { file, totalBytes: nextBytes } = sanitizeFileAttachment(f, { totalBytes });
+    totalBytes = nextBytes;
+    files.push(file);
   }
 
   const fb = feedback && typeof feedback === 'object' ? feedback : {
@@ -247,7 +327,12 @@ function sanitizeExtras({ commentList, fileList, feedback }) {
     throw err;
   }
 
-  return { commentList: comments, fileList: files, feedback: fb };
+  return {
+    commentList: comments,
+    fileList: files,
+    feedback: fb,
+    deliveryList: sanitizeDeliveryList(deliveryList),
+  };
 }
 
 async function syncClientProductionStatus(clientId) {
@@ -358,6 +443,7 @@ export async function createCard(req, res) {
     commentList,
     fileList,
     feedback,
+    deliveryList,
   } = req.body || {};
 
   const titleTrim = String(title || '').trim();
@@ -386,7 +472,7 @@ export async function createCard(req, res) {
     url = null;
   }
 
-  const extras = sanitizeExtras({ commentList, fileList, feedback });
+  const extras = sanitizeExtras({ commentList, fileList, feedback, deliveryList });
 
   const [result] = await pool.query(
     `INSERT INTO production_cards
@@ -488,6 +574,7 @@ export async function updateCard(req, res) {
     commentList: body.commentList !== undefined ? body.commentList : prevExtras.commentList,
     fileList: body.fileList !== undefined ? body.fileList : prevExtras.fileList,
     feedback: body.feedback !== undefined ? body.feedback : prevExtras.feedback,
+    deliveryList: body.deliveryList !== undefined ? body.deliveryList : prevExtras.deliveryList,
   });
 
   const prevClientId = existing.client_id;

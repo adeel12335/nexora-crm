@@ -14,13 +14,17 @@ import {
   toDateInputValue,
   validateCardForm,
   validateComment,
+  validateDeliveryFiles,
+  validateDeliveryLink,
   validateFeedback,
   validateFiles,
+  MAX_DELIVERIES_PER_CARD,
 } from '../../utils/boardValidation.js';
 
 const TABS = [
   { id: 'details', label: 'Status', icon: 'i-settings' },
   { id: 'files', label: 'Files', icon: 'i-paperclip' },
+  { id: 'delivery', label: 'Delivery', icon: 'i-link' },
   { id: 'comments', label: 'Comments', icon: 'i-message' },
   { id: 'feedback', label: 'Feedback', icon: 'i-star' },
 ];
@@ -38,6 +42,9 @@ export default function CardDrawer({
   canEditMeta = true,
   onUploadFiles,
   onRemoveFile,
+  onAddDeliveryLink,
+  onUploadDeliveryFiles,
+  onRemoveDelivery,
   onSaveFeedback,
   stages,
   assignees = [],
@@ -45,11 +52,15 @@ export default function CardDrawer({
   onMove,
 }) {
   const fileInputRef = useRef(null);
+  const deliveryFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
   const [tab, setTab] = useState('details');
   const [comment, setComment] = useState('');
+  const [deliveryUrl, setDeliveryUrl] = useState('');
+  const [deliveryLabel, setDeliveryLabel] = useState('');
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState(null);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -60,8 +71,11 @@ export default function CardDrawer({
     if (!card) return;
     setTab('details');
     setComment('');
+    setDeliveryUrl('');
+    setDeliveryLabel('');
     setDirty(false);
     setConfirmDeleteCard(false);
+    setConfirmDeleteDelivery(null);
     setDeleting(false);
     setEdit({
       title: card.title,
@@ -92,6 +106,7 @@ export default function CardDrawer({
 
   const deadline = getDeadlineInfo(card.dueDate);
   const files = card.fileList || [];
+  const deliveries = card.deliveryList || [];
   const commentList = comments || [];
   const feedback = card.feedback || { status: 'none' };
 
@@ -172,6 +187,40 @@ export default function CardDrawer({
     }
     if (errors.length) showErrors('Some files skipped', errors, 'warn');
     if (ok.length) onUploadFiles(card.id, ok);
+    e.target.value = '';
+  }
+
+  async function handleDeliveryLinkSubmit(e) {
+    e.preventDefault();
+    if (deliveries.length >= MAX_DELIVERIES_PER_CARD) {
+      showErrors('Delivery limit', [`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`]);
+      return;
+    }
+    const result = validateDeliveryLink({ url: deliveryUrl, label: deliveryLabel });
+    if (!result.ok) {
+      showErrors('Cannot add link', result.errors);
+      return;
+    }
+    const ok = await onAddDeliveryLink?.(card.id, {
+      url: result.url,
+      label: result.label || result.url,
+    });
+    if (ok) {
+      setDeliveryUrl('');
+      setDeliveryLabel('');
+    }
+  }
+
+  function handleDeliveryFilePick(e) {
+    const picked = e.target.files;
+    const { ok, errors } = validateDeliveryFiles(picked, deliveries);
+    if (!ok.length) {
+      showErrors('Upload blocked', errors);
+      e.target.value = '';
+      return;
+    }
+    if (errors.length) showErrors('Some files skipped', errors, 'warn');
+    if (ok.length) onUploadDeliveryFiles?.(card.id, ok);
     e.target.value = '';
   }
 
@@ -258,6 +307,7 @@ export default function CardDrawer({
                 <span>
                   {item.label}
                   {item.id === 'files' && files.length ? ` (${files.length})` : ''}
+                  {item.id === 'delivery' && deliveries.length ? ` (${deliveries.length})` : ''}
                   {item.id === 'comments' && commentList.length ? ` (${commentList.length})` : ''}
                 </span>
               </button>
@@ -479,6 +529,119 @@ export default function CardDrawer({
             </section>
           )}
 
+          {tab === 'delivery' && (
+            <section className="detail-section">
+              <p className="detail-hint">
+                Add a handoff link or upload a delivery file (max {MAX_DELIVERIES_PER_CARD}). Live site URL stays on Status.
+              </p>
+
+              <form className="delivery-compose" onSubmit={handleDeliveryLinkSubmit} noValidate>
+                <h3>Add link</h3>
+                <div className="form-row">
+                  <label>
+                    URL
+                    <input
+                      type="url"
+                      value={deliveryUrl}
+                      onChange={(e) => setDeliveryUrl(e.target.value)}
+                      placeholder="https://drive.google.com/…"
+                      maxLength={500}
+                    />
+                  </label>
+                  <label>
+                    Label <span className="field-hint">(optional)</span>
+                    <input
+                      value={deliveryLabel}
+                      onChange={(e) => setDeliveryLabel(e.target.value)}
+                      placeholder="Final draft / Figma / Drive folder"
+                      maxLength={120}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="submit"
+                  className="primary-btn"
+                  disabled={!deliveryUrl.trim() || deliveries.length >= MAX_DELIVERIES_PER_CARD}
+                >
+                  Add link
+                </button>
+              </form>
+
+              <div
+                className="upload-dropzone"
+                onClick={() => deliveryFileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') deliveryFileInputRef.current?.click();
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <Icon id="i-paperclip" />
+                <strong>Upload delivery file</strong>
+                <span>Max {MAX_DELIVERIES_PER_CARD} deliveries · 5 MB each · same types as Files</span>
+              </div>
+              <input
+                ref={deliveryFileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={handleDeliveryFilePick}
+                accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+              />
+
+              {deliveries.length ? (
+                <ul className="file-list">
+                  {deliveries.map((item) => {
+                    const isLink = item.kind === 'link';
+                    const title = item.label || item.name || item.url || 'Delivery';
+                    const href = item.url || null;
+                    return (
+                      <li key={item.id} className="file-row">
+                        <div className="file-icon">
+                          <Icon id={isLink ? 'i-link' : 'i-paperclip'} />
+                        </div>
+                        <div className="file-meta">
+                          <strong>{title}</strong>
+                          <span className={`delivery-kind-pill${isLink ? ' is-link' : ''}`}>
+                            {isLink ? 'Link' : 'File'}
+                          </span>
+                          {!isLink ? (
+                            <span>{formatFileSize(item.size || 0)}</span>
+                          ) : href ? (
+                            <span>{href}</span>
+                          ) : null}
+                        </div>
+                        <div className="file-actions">
+                          {href ? (
+                            <a
+                              className="tool-btn"
+                              href={href}
+                              download={isLink ? undefined : item.name}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="plain-icon"
+                            aria-label={`Remove ${title}`}
+                            onClick={() => setConfirmDeleteDelivery(item)}
+                          >
+                            <Icon id="i-close" />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="empty-state">No deliveries yet</div>
+              )}
+            </section>
+          )}
+
           {tab === 'comments' && (
             <section className="detail-section activity-section">
               <p className="detail-hint">Type below and press send to add a comment.</p>
@@ -593,6 +756,16 @@ export default function CardDrawer({
               Upload file
             </button>
           )}
+          {tab === 'delivery' && (
+            <button
+              type="button"
+              className="primary-btn detail-save-btn"
+              onClick={() => deliveryFileInputRef.current?.click()}
+              disabled={deliveries.length >= MAX_DELIVERIES_PER_CARD}
+            >
+              Upload delivery file
+            </button>
+          )}
           {tab === 'feedback' && (
             <button type="submit" form="card-feedback-form" className="primary-btn detail-save-btn">
               Save feedback
@@ -623,6 +796,24 @@ export default function CardDrawer({
           setConfirmDelete(null);
         }}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <BoardAlertModal
+        open={Boolean(confirmDeleteDelivery)}
+        title="Remove delivery?"
+        message={
+          confirmDeleteDelivery
+            ? `"${confirmDeleteDelivery.label || confirmDeleteDelivery.name || confirmDeleteDelivery.url}" will be removed.`
+            : ''
+        }
+        tone="warn"
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          if (confirmDeleteDelivery) onRemoveDelivery?.(card.id, confirmDeleteDelivery.id);
+          setConfirmDeleteDelivery(null);
+        }}
+        onCancel={() => setConfirmDeleteDelivery(null)}
       />
 
       <BoardAlertModal

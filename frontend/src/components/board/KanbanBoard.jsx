@@ -6,7 +6,7 @@ import CardDrawer from './CardDrawer.jsx';
 import NewCardModal from './NewCardModal.jsx';
 import { avatarPool, productionStages } from '../../data/mockData.js';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
-import { isHighPriority, validateFiles, MAX_FILES_PER_CARD } from '../../utils/boardValidation.js';
+import { isHighPriority, validateFiles, MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, validateDeliveryFiles } from '../../utils/boardValidation.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
@@ -31,6 +31,7 @@ function hydrateCard(card) {
     clientAgentName: card.clientAgentName || null,
     commentList: (card.commentList || []).map((c) => ({ ...c, kind: c.kind || 'comment' })),
     fileList: (card.fileList || []).map((f) => ({ ...f })),
+    deliveryList: (card.deliveryList || []).map((d) => ({ ...d })),
     feedback: card.feedback || { status: 'none', note: '', rating: null, updatedAt: null, author: null },
     comments: card.commentList?.length ?? card.comments ?? 0,
     attachments: card.fileList?.length ?? card.attachments ?? 0,
@@ -156,6 +157,7 @@ export default function KanbanBoard() {
       liveUrl: patch.liveUrl !== undefined ? patch.liveUrl : card.liveUrl,
       commentList: patch.commentList ?? card.commentList,
       fileList: patch.fileList ?? card.fileList,
+      deliveryList: patch.deliveryList ?? card.deliveryList,
       feedback: patch.feedback ?? card.feedback,
     };
     const data = await api.updateProductionCard(token, cardId, body);
@@ -265,6 +267,7 @@ export default function KanbanBoard() {
         dueDate: form.dueDate,
         liveUrl: form.liveUrl || '',
         fileList,
+        deliveryList: [],
         commentList: [],
       });
       const card = hydrateCard(data.card);
@@ -377,6 +380,81 @@ export default function KanbanBoard() {
     }
   }
 
+  async function handleAddDeliveryLink(cardId, { url, label }) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return false;
+    const existing = card.deliveryList || [];
+    if (existing.length >= MAX_DELIVERIES_PER_CARD) {
+      showToast(`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`);
+      return false;
+    }
+    const entry = {
+      id: nextFileId++,
+      kind: 'link',
+      label: label || url,
+      url,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await persistCard(cardId, { deliveryList: [entry, ...existing].slice(0, MAX_DELIVERIES_PER_CARD) });
+      pushActivity(cardId, 'added a delivery link');
+      showToast('Delivery link added');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Could not add delivery link');
+      return false;
+    }
+  }
+
+  async function handleUploadDeliveryFiles(cardId, files) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const existing = card.deliveryList || [];
+    const { ok, errors } = validateDeliveryFiles(files, existing);
+    if (!ok.length) {
+      showToast(errors[0] || 'Upload blocked');
+      return;
+    }
+    if (errors.length) showToast(errors[0]);
+    try {
+      const uploaded = await Promise.all(ok.map(async (file) => ({
+        id: nextFileId++,
+        kind: 'file',
+        label: file.name,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        url: await readFileAsDataUrl(file),
+        createdAt: new Date().toISOString(),
+      })));
+      const deliveryList = [...uploaded, ...existing].slice(0, MAX_DELIVERIES_PER_CARD);
+      await persistCard(cardId, { deliveryList });
+      pushActivity(cardId, `added ${uploaded.length} delivery file${uploaded.length > 1 ? 's' : ''}`);
+      showToast(`${uploaded.length} delivery file${uploaded.length > 1 ? 's' : ''} added`);
+    } catch (err) {
+      showToast(err.message || 'Delivery upload failed');
+    }
+  }
+
+  async function handleRemoveDelivery(cardId, deliveryId) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const removed = (card.deliveryList || []).find((d) => d.id === deliveryId);
+    const deliveryList = (card.deliveryList || []).filter((d) => d.id !== deliveryId);
+    try {
+      await persistCard(cardId, { deliveryList });
+      if (removed) {
+        pushActivity(
+          cardId,
+          removed.kind === 'link' ? 'removed a delivery link' : `removed delivery ${removed.label || removed.name}`,
+        );
+      }
+      showToast('Delivery removed');
+    } catch (err) {
+      showToast(err.message || 'Could not remove delivery');
+    }
+  }
+
   async function handleSaveFeedback(cardId, feedback) {
     try {
       await persistCard(cardId, { feedback });
@@ -482,6 +560,9 @@ export default function KanbanBoard() {
         canEditMeta={canEditCardMeta}
         onUploadFiles={handleUploadFiles}
         onRemoveFile={handleRemoveFile}
+        onAddDeliveryLink={handleAddDeliveryLink}
+        onUploadDeliveryFiles={handleUploadDeliveryFiles}
+        onRemoveDelivery={handleRemoveDelivery}
         onSaveFeedback={handleSaveFeedback}
         stages={productionStages}
         assignees={assignees}

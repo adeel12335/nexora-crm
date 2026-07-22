@@ -305,7 +305,7 @@
 
 .detail-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   margin: 0 -6px;
   padding: 0 6px 10px;
@@ -413,6 +413,43 @@
 .file-meta span { color: var(--muted); font-size: 11px; }
 .file-actions { display: flex; align-items: center; gap: 4px; }
 .file-actions .tool-btn { min-height: 36px; padding: 0 10px; font-size: 12px; }
+
+.delivery-compose {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  margin-bottom: 12px;
+}
+.delivery-compose h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+.delivery-compose .form-row {
+  display: grid;
+  gap: 8px;
+}
+.delivery-kind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.delivery-kind-pill.is-link {
+  background: color-mix(in srgb, var(--accent-soft) 50%, white);
+  color: var(--accent-active);
+}
 
 .detail-section { padding: 0; }
 .detail-section h3 { margin: 0 0 8px; font-size: 15px; }
@@ -625,7 +662,7 @@
   .filter-strip button { white-space: nowrap; }
   .detail-panel { width: min(460px, 100vw); }
   .detail-form .form-grid { grid-template-columns: 1fr; }
-  .detail-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .detail-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .detail-tabs button span { font-size: 10px; }
 }
 

@@ -1,11 +1,13 @@
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_FILES_PER_CARD = 10;
+const MAX_DELIVERIES_PER_CARD = 5;
 const MAX_TITLE = 120;
 const MAX_CLIENT = 80;
 const MAX_DESCRIPTION = 2000;
 const MAX_COMMENT = 1000;
 const MAX_FEEDBACK = 1000;
+const MAX_DELIVERY_LABEL = 120;
 
 const ALLOWED_EXT = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp',
@@ -186,6 +188,90 @@ export function validateFiles(fileList, existingCount = 0, existingBytes = 0) {
   return { ok, errors };
 }
 
+export function normalizeDeliveryUrl(raw) {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  if (!/^https?:\/\//i.test(url)) return `https://${url}`;
+  return url;
+}
+
+export function validateDeliveryLink({ url, label } = {}) {
+  const errors = [];
+  const normalized = normalizeDeliveryUrl(url);
+  if (!normalized) errors.push('Delivery link is required');
+  else if (!/^https?:\/\/.+/i.test(normalized)) errors.push('Enter a valid link (https://…)');
+
+  const cleanedLabel = String(label || '').trim();
+  if (cleanedLabel.length > MAX_DELIVERY_LABEL) {
+    errors.push(`Label cannot exceed ${MAX_DELIVERY_LABEL} characters`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    url: normalized,
+    label: cleanedLabel,
+  };
+}
+
+/**
+ * Validate delivery file uploads. Caps against max deliveries and shared byte budget for file-kind items.
+ */
+export function validateDeliveryFiles(fileList, existingDeliveries = []) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return { ok: [], errors: ['Choose at least one file'] };
+
+  const existing = Array.isArray(existingDeliveries) ? existingDeliveries : [];
+  const slots = Math.max(0, MAX_DELIVERIES_PER_CARD - existing.length);
+  if (slots === 0) {
+    return { ok: [], errors: [`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`] };
+  }
+
+  const existingBytes = existing
+    .filter((d) => d?.kind === 'file')
+    .reduce((sum, d) => sum + Number(d.size || 0), 0);
+
+  const errors = [];
+  let overCap = false;
+  if (files.length > slots) {
+    errors.push(`Only ${slots} more deliver${slots === 1 ? 'y' : 'ies'} allowed (max ${MAX_DELIVERIES_PER_CARD})`);
+    overCap = true;
+  }
+
+  const ok = [];
+  let runningBytes = existingBytes;
+
+  for (const file of files) {
+    if (ok.length >= slots) break;
+
+    const ext = extOf(file.name);
+    if (!ALLOWED_EXT.has(ext)) {
+      errors.push(`"${file.name}" type is not allowed`);
+      continue;
+    }
+    if (file.size <= 0) {
+      errors.push(`"${file.name}" is empty`);
+      continue;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      errors.push(`"${file.name}" exceeds 5 MB`);
+      continue;
+    }
+    if (runningBytes + file.size > MAX_TOTAL_FILE_BYTES) {
+      errors.push(`Delivery files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
+      break;
+    }
+    ok.push(file);
+    runningBytes += file.size;
+  }
+
+  if (overCap && ok.length) {
+    // already noted — ok is truncated to slots
+  }
+
+  return { ok, errors };
+}
+
 export function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -208,4 +294,4 @@ export function fromDateInputValue(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export { MAX_FILES_PER_CARD, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };
+export { MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };
