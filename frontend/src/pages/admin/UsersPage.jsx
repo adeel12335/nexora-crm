@@ -39,6 +39,15 @@ export default function UsersPage() {
 
   const month = toMonthKey(monthDate);
 
+  const loadManagers = useCallback(async () => {
+    try {
+      const mgrPayload = await api.listUsers(token, '?role=manager&lite=1');
+      setManagers((mgrPayload.users || []).filter((u) => u.isActive));
+    } catch {
+      // Picker can stay empty; table load errors are surfaced separately.
+    }
+  }, [token]);
+
   const load = useCallback(async () => {
     try {
       const params = new URLSearchParams({
@@ -49,10 +58,10 @@ export default function UsersPage() {
       if (search.trim()) params.set('search', search.trim());
       if (roleFilter) params.set('role', roleFilter);
 
-      const [{ users: rows, counts: nextCounts, pagination: pageInfo }, mgrPayload] = await Promise.all([
-        api.listUsers(token, `?${params}`),
-        api.listUsers(token, '?role=manager'),
-      ]);
+      const { users: rows, counts: nextCounts, pagination: pageInfo } = await api.listUsers(
+        token,
+        `?${params}`
+      );
 
       setUsers(rows);
       setCounts({
@@ -63,7 +72,6 @@ export default function UsersPage() {
         admin: Number(nextCounts?.admin ?? 0),
       });
       setPagination(pageInfo || { page: 1, pageSize: PAGE_SIZE, total: rows.length, totalPages: 1 });
-      setManagers((mgrPayload.users || []).filter((u) => u.isActive));
       setError('');
     } catch (err) {
       setError(err.message);
@@ -71,6 +79,10 @@ export default function UsersPage() {
       setLoading(false);
     }
   }, [token, search, page, month, roleFilter]);
+
+  useEffect(() => {
+    loadManagers();
+  }, [loadManagers]);
 
   useEffect(() => {
     setLoading(true);
@@ -99,6 +111,7 @@ export default function UsersPage() {
       await api.deleteUser(token, row.id, hard);
       if (users.length === 1 && page > 1) setPage((p) => p - 1);
       else await load();
+      if (row.role === 'manager') await loadManagers();
       showToast(hard ? `${row.name} deleted` : `${row.name} deactivated`);
     } catch (err) {
       setError(err.message);
@@ -264,7 +277,7 @@ export default function UsersPage() {
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await load();
+            await Promise.all([load(), loadManagers()]);
             showToast('User saved');
           }}
         />

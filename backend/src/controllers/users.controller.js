@@ -40,10 +40,15 @@ function toPublicUser(row) {
   };
 }
 
+const USER_LIST_COLUMNS = `
+  u.id, u.name, u.email, u.phone, u.whatsapp_number, u.role, u.manager_id,
+  u.is_active, u.avatar_url, u.created_at
+`;
+
 function userSelect(monthStart) {
   return {
     sql: `
-      SELECT u.*, m.name AS manager_name,
+      SELECT ${USER_LIST_COLUMNS}, m.name AS manager_name,
              ${USER_RATE_SUBQUERY} AS commission_percentage,
              ${MANAGER_RATE_SUBQUERY} AS manager_cut,
              (SELECT COUNT(*) FROM mailboxes mb WHERE mb.user_id = u.id) AS mailbox_count
@@ -52,6 +57,14 @@ function userSelect(monthStart) {
     `,
     // Both rate subqueries take the same month start.
     params: [monthStart, monthStart],
+  };
+}
+
+/** Lean list for pickers (id/name only) — skips rates, mailboxes, and role counts. */
+function userSelectLite() {
+  return {
+    sql: `SELECT u.id, u.name, u.email, u.role, u.is_active FROM users u`,
+    params: [],
   };
 }
 
@@ -204,16 +217,18 @@ async function fetchUser(id, monthKey = currentMonthKey()) {
 }
 
 /**
- * GET /api/users?role=&search=&includeInactive=&month=&page=&pageSize=
+ * GET /api/users?role=&search=&includeInactive=&month=&page=&pageSize=&lite=
  * Omit pageSize (or pass 0) to return every match — used by mailboxes / manager pickers.
+ * Pass lite=1 for a lean id/name list (no rates, mailboxes, or role counts).
  */
 export async function listUsers(req, res) {
   const { role, search, includeInactive, month } = req.query;
+  const lite = req.query.lite === '1' || req.query.lite === 'true';
   const monthKey = month || currentMonthKey();
-  if (!isValidMonth(monthKey)) {
+  if (!lite && !isValidMonth(monthKey)) {
     return res.status(400).json({ error: 'month must look like YYYY-MM' });
   }
-  const monthStart = toMonthStart(monthKey);
+  const monthStart = lite ? null : toMonthStart(monthKey);
 
   const page = Math.max(1, Number(req.query.page) || 1);
   const rawSize = req.query.pageSize === undefined ? 0 : Number(req.query.pageSize);
@@ -237,24 +252,38 @@ export async function listUsers(req, res) {
 
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  // Role totals for the stats cards — same filters, no pagination.
-  const [countRows] = await pool.query(
-    `SELECT u.role, COUNT(*) AS count FROM users u ${clause} GROUP BY u.role`,
-    filterParams
-  );
   const counts = { total: 0, admin: 0, manager: 0, agent: 0, production: 0 };
-  for (const row of countRows) {
-    const n = Number(row.count);
-    counts[row.role] = n;
-    counts.total += n;
+  let total;
+
+  if (lite) {
+    // Pickers only need a total for pagination metadata; skip role breakdown.
+    const [[{ total: n }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM users u ${clause}`,
+      filterParams
+    );
+    total = Number(n);
+    counts.total = total;
+  } else {
+    // Role totals for the stats cards — same filters, no pagination.
+    const [countRows] = await pool.query(
+      `SELECT u.role, COUNT(*) AS count FROM users u ${clause} GROUP BY u.role`,
+      filterParams
+    );
+    for (const row of countRows) {
+      const n = Number(row.count);
+      counts[row.role] = n;
+      counts.total += n;
+    }
+    total = counts.total;
   }
 
-  const total = counts.total;
   const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
   const safePage = pageSize > 0 ? Math.min(page, totalPages) : 1;
 
-  const { sql, params: rateParams } = userSelect(monthStart);
-  let listSql = `${sql} ${clause} ORDER BY FIELD(u.role,'admin','manager','agent','production'), u.name`;
+  const { sql, params: rateParams } = lite ? userSelectLite() : userSelect(monthStart);
+  let listSql = lite
+    ? `${sql} ${clause} ORDER BY u.name`
+    : `${sql} ${clause} ORDER BY FIELD(u.role,'admin','manager','agent','production'), u.name`;
   const listParams = [...rateParams, ...filterParams];
   if (pageSize > 0) {
     listSql += ' LIMIT ? OFFSET ?';
