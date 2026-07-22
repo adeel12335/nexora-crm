@@ -67,13 +67,81 @@
 .plan-copy strong, .plan-copy span { display:block; }
 .plan-copy strong { font-size:13px; color:#fff; }
 .plan-copy span { margin-top:3px; color:rgba(255,255,255,.72); font-size:11px; line-height:1.35; }
-.profile-card { display:grid; grid-template-columns:40px 1fr; align-items:center; gap:10px; min-height:56px; padding:8px 10px; border:1px solid var(--border); border-radius:13px; background:var(--surface); cursor:pointer; text-align:left; flex:1; min-width:0; }
-.profile-card img { width:40px; height:40px; border-radius:50%; }
-.profile-card strong,.profile-card small { display:block; }
-.profile-card strong { font-size:13px; } .profile-card small { margin-top:2px; color:var(--muted); font-size:12px; }
-.sidebar-logout { flex-shrink:0; width:40px; height:40px; border-radius:11px; border:1px solid var(--border); background:var(--surface); color:var(--muted); }
-.sidebar-logout:hover { color:var(--text); background:var(--surface-3); }
-.sidebar-logout svg { width:17px; height:17px; }
+.profile-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  flex: 1;
+  min-width: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.profile-card:hover,
+.profile-card:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  text-decoration: none;
+  color: var(--text);
+}
+.profile-card:visited { color: var(--text); }
+.profile-card img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-3);
+}
+.profile-card > span,
+.profile-card-copy {
+  min-width: 0;
+  overflow: hidden;
+}
+.profile-card strong,
+.profile-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.profile-card strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+}
+.profile-card small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.sidebar-logout {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+.sidebar-logout:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.sidebar-logout svg { width: 17px; height: 17px; }
 
 .workspace { min-width:0; }
 .topbar {

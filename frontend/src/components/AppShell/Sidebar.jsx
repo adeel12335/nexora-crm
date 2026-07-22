@@ -38,8 +38,11 @@ export default function Sidebar({ role, user, onLogout, open, mobile, onNavigate
 
       <div className="sidebar-bottom">
         <Link to={`${role.basePath}/profile`} className="profile-card" onClick={onNavigate} aria-label="My profile">
-          <img src={user.avatarUrl || '/assets/avatar-jane.svg'} alt={user.name} />
-          <span><strong>{user.name}</strong><small>{role.label}</small></span>
+          <img src={user.avatarUrl || '/assets/avatar-jane.svg'} alt="" />
+          <span className="profile-card-copy">
+            <strong>{user.name}</strong>
+            <small>{role.label}</small>
+          </span>
         </Link>
         <button className="icon-btn sidebar-logout" onClick={onLogout} aria-label="Sign out">
           <Icon id="i-logout" />
