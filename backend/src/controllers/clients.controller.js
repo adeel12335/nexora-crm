@@ -524,6 +524,24 @@ export async function updateClient(req, res) {
   res.json({ client: toClient(row, { role: req.user?.role || null }) });
 }
 
+/**
+ * DELETE /api/clients/:id
+ * Soft-delete: sets is_active = 0. Payments and commissions are kept.
+ */
+export async function deleteClient(req, res) {
+  const [[existing]] = await pool.query(
+    'SELECT id, name, is_active FROM clients WHERE id = ?',
+    [req.params.id]
+  );
+  if (!existing) return res.status(404).json({ error: 'Client not found' });
+  if (!existing.is_active) {
+    return res.json({ message: 'Client already removed', clientId: existing.id });
+  }
+
+  await pool.query('UPDATE clients SET is_active = 0 WHERE id = ?', [existing.id]);
+  res.json({ message: `${existing.name} removed`, clientId: existing.id });
+}
+
 /** POST /api/clients/:id/payments */
 export async function addPayment(req, res) {
   const clientId = Number(req.params.id);

@@ -478,9 +478,9 @@ export default function AdminSettings() {
               <div className="rule-icon"><Icon id="i-clock" /></div>
               <div className="rule-copy">
                 <strong>Late check-in cutoff</strong>
-                <span>Check-ins after this Karachi time are marked late.</span>
+                <span>Check-ins at this Karachi time or later are marked late.</span>
               </div>
-              <div className="rule-counter"><strong>{attendance?.lateCutoff || '09:15'}</strong></div>
+              <div className="rule-counter"><strong>{attendance?.lateCutoff || '16:00'}</strong></div>
             </div>
             <div className="rule-row">
               <div className="rule-icon"><Icon id="i-revision" /></div>
@@ -489,6 +489,20 @@ export default function AdminSettings() {
                 <span>Every Nth late in a cycle counts as 1 day off.</span>
               </div>
               <div className="rule-counter"><strong>Every {attendance?.lateCountForAutoOff ?? 4}th</strong></div>
+            </div>
+            <div className="rule-row">
+              <div className="rule-icon"><Icon id="i-fingerprint" /></div>
+              <div className="rule-copy">
+                <strong>Office geofence</strong>
+                <span>
+                  {attendance?.geofence?.enabled
+                    ? `Check-in allowed within ${attendance.geofence.radiusMeters}m of office GPS.`
+                    : 'Disabled — set OFFICE_LAT / OFFICE_LNG in backend .env to enforce.'}
+                </span>
+              </div>
+              <div className="rule-counter">
+                <strong>{attendance?.geofence?.enabled ? 'On' : 'Off'}</strong>
+              </div>
             </div>
             <div className="rule-row">
               <div className="rule-icon"><Icon id="i-calendar" /></div>

@@ -14,6 +14,7 @@ import { createNotification, notifyUser } from '../services/notifications.js';
 import { normalisePhone } from '../utils/phone.js';
 import { pool } from '../config/db.js';
 import { RULES } from '../utils/attendanceRules.js';
+import { getOfficeGeofenceConfig } from '../utils/geofence.js';
 
 const ALLOWED_BROADCAST_ROLES = new Set(['admin', 'manager', 'agent', 'production']);
 const MAX_BROADCAST_RECIPIENTS = 50;
@@ -66,6 +67,7 @@ export async function getPortalSettings(req, res) {
       freeOffsPerMonth: RULES.freeOffsPerMonth,
       draftDeadlineDays: 4,
       revisionDeadlineDays: 2,
+      geofence: getOfficeGeofenceConfig(),
     },
     whatsapp: {
       ...publicConfig,

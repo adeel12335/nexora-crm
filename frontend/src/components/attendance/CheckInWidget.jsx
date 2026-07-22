@@ -44,6 +44,9 @@ export default function CheckInWidget() {
     startProgress,
     confirmModal,
     cancelModal,
+    locationGate,
+    geofenceEnabled,
+    checkInBlockedByLocation,
   } = useAttendanceSession();
 
   useEffect(() => {
@@ -94,8 +97,16 @@ export default function CheckInWidget() {
         </div>
       )}
 
+      {geofenceEnabled && canCheckIn && locationGate.message ? (
+        <p className="checkin-geo-msg" role="status">{locationGate.message}</p>
+      ) : null}
+
       {canCheckIn && (
-        <button className="checkin-btn" onClick={handleCheckIn} disabled={busy}>
+        <button
+          className="checkin-btn"
+          onClick={handleCheckIn}
+          disabled={busy || checkInBlockedByLocation}
+        >
           Check In
         </button>
       )}

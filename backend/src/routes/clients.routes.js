@@ -4,6 +4,7 @@ import {
   getClient,
   createClient,
   updateClient,
+  deleteClient,
   addPayment,
   updatePayment,
   deletePayment,
@@ -21,6 +22,7 @@ clientsRoutes.get('/:id', requireRole('admin', 'manager', 'agent', 'production')
 
 clientsRoutes.post('/', requireRole('admin'), asyncHandler(createClient));
 clientsRoutes.patch('/:id', requireRole('admin'), asyncHandler(updateClient));
+clientsRoutes.delete('/:id', requireRole('admin'), asyncHandler(deleteClient));
 clientsRoutes.post('/:id/payments', requireRole('admin'), asyncHandler(addPayment));
 clientsRoutes.patch('/:id/payments/:paymentId', requireRole('admin'), asyncHandler(updatePayment));
 clientsRoutes.delete('/:id/payments/:paymentId', requireRole('admin'), asyncHandler(deletePayment));

@@ -2,6 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import {
+  createOfficePresence,
+  evaluateOfficePresence,
+} from '../utils/officeGeofence.js';
 
 export function formatElapsed(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
@@ -32,6 +36,9 @@ function useAttendanceSessionState() {
   const [tick, setTick] = useState(0);
   const [emailsInput, setEmailsInput] = useState('');
   const [modalMode, setModalMode] = useState(null);
+  const [geofence, setGeofence] = useState(null);
+  const [geoPosition, setGeoPosition] = useState(null);
+  const [geoErrorCode, setGeoErrorCode] = useState(null);
   const initialLoadDone = useRef(false);
 
   const applyToday = useCallback((data) => {
@@ -41,6 +48,7 @@ function useAttendanceSessionState() {
     setOpenSession(data.openSession);
     setCanCheckIn(Boolean(data.canCheckIn));
     setMonth(data.month);
+    if (data.geofence) setGeofence(data.geofence);
     if (data.elapsedSeconds != null && data.activeSession) {
       setElapsedBase(data.elapsedSeconds);
       setElapsedAt(Date.now());
@@ -68,7 +76,47 @@ function useAttendanceSessionState() {
     load();
   }, [load]);
 
-  // Local clock tick — no API. Only while an active session is open.
+  const officePresence = useMemo(() => createOfficePresence(geofence), [geofence]);
+
+  useEffect(() => {
+    if (!officePresence.enabled) {
+      setGeoPosition(null);
+      setGeoErrorCode(null);
+      return undefined;
+    }
+    if (!navigator.geolocation) {
+      setGeoErrorCode('unavailable');
+      return undefined;
+    }
+
+    const onOk = (pos) => {
+      setGeoErrorCode(null);
+      setGeoPosition({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      });
+    };
+    const onErr = (err) => {
+      setGeoPosition(null);
+      if (err?.code === 1) setGeoErrorCode('denied');
+      else if (err?.code === 3) setGeoErrorCode('timeout');
+      else setGeoErrorCode('unavailable');
+    };
+
+    const watchId = navigator.geolocation.watchPosition(onOk, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 15000,
+      timeout: 20000,
+    });
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [officePresence.enabled]);
+
+  const locationGate = useMemo(
+    () => evaluateOfficePresence(officePresence.office, geoPosition, geoErrorCode),
+    [officePresence.office, geoPosition, geoErrorCode]
+  );
+
   useEffect(() => {
     if (!activeSession || elapsedBase == null) return undefined;
     const id = setInterval(() => setTick((n) => n + 1), 1000);
@@ -85,6 +133,7 @@ function useAttendanceSessionState() {
   const hasDayRecord = Boolean(record?.checkInTime);
   const late = record?.status === 'late';
   const status = !hasDayRecord ? 'out' : isWorking ? (late ? 'late' : 'in') : 'paused';
+  const checkInBlockedByLocation = officePresence.enabled && (!locationGate.allowed || !locationGate.ready);
 
   async function handleCheckIn() {
     if (openSession) {
@@ -92,9 +141,16 @@ function useAttendanceSessionState() {
       showToastRef.current('Close yesterday’s open session first');
       return;
     }
+    if (checkInBlockedByLocation) {
+      showToastRef.current(locationGate.message || 'You are not in the office.');
+      return;
+    }
     setBusy(true);
     try {
-      const data = await api.attendanceCheckIn(token);
+      const body = geoPosition
+        ? { lat: geoPosition.lat, lng: geoPosition.lng }
+        : {};
+      const data = await api.attendanceCheckIn(token, body);
       applyToday(data);
       showToastRef.current(
         data.reentry
@@ -190,6 +246,9 @@ function useAttendanceSessionState() {
     confirmModal,
     cancelModal,
     reload: load,
+    locationGate,
+    geofenceEnabled: officePresence.enabled,
+    checkInBlockedByLocation,
   };
 }
 

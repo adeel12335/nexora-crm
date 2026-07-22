@@ -4,8 +4,8 @@ import { karachiClockParts } from './karachiTime.js';
 export const RULES = {
   freeOffsPerMonth: 2,
   lateCountForAutoOff: 4,
-  lateCutoffHour: 9,
-  lateCutoffMinute: 15,
+  lateCutoffHour: 16,
+  lateCutoffMinute: 0,
 };
 
 export function computeAttendanceStatus({ lateCount = 0, offsTaken = 0 }) {
@@ -28,11 +28,11 @@ export function computeAttendanceStatus({ lateCount = 0, offsTaken = 0 }) {
   };
 }
 
-/** Late if after 9:15 AM Asia/Karachi */
+/** Late if 4:00 PM Asia/Karachi or later */
 export function isLateCheckIn(date = new Date()) {
   const p = karachiClockParts(date);
   return (
     p.hour > RULES.lateCutoffHour ||
-    (p.hour === RULES.lateCutoffHour && p.minute > RULES.lateCutoffMinute)
+    (p.hour === RULES.lateCutoffHour && p.minute >= RULES.lateCutoffMinute)
   );
 }

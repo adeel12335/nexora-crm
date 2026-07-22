@@ -13,6 +13,7 @@ import {
   DEFAULT_CHECKOUT_MINUTE,
 } from '../utils/karachiTime.js';
 import { notifyLateCheckIn } from '../services/notifications.js';
+import { assertWithinOffice, getOfficeGeofenceConfig } from '../utils/geofence.js';
 
 const CHECKIN_ROLES = ['agent', 'manager'];
 
@@ -218,6 +219,7 @@ async function buildTodayPayload(userId) {
       : null,
     elapsedSeconds,
     month: summary,
+    geofence: getOfficeGeofenceConfig(),
   };
 }
 
@@ -235,6 +237,11 @@ export async function checkIn(req, res) {
   assertCanCheckIn(req.user);
   const today = karachiWorkDate();
   const now = new Date();
+
+  const geo = assertWithinOffice(req.body?.lat, req.body?.lng);
+  if (!geo.ok) {
+    return res.status(403).json({ error: geo.error, distanceMeters: geo.distanceMeters ?? null });
+  }
 
   const openPast = await resolveOpenPastSessions(req.user.id, today);
   if (openPast) {

@@ -20,6 +20,16 @@
 .checkin-timer { font-variant-numeric:tabular-nums; font-size:22px; font-weight:700; letter-spacing:.04em; color:var(--accent); }
 .checkin-emails { color:var(--muted); font-size:13px; }
 .checkin-open-banner { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; padding:8px 12px; border-radius:10px; background:rgba(216,167,76,.16); color:var(--bronze); font-size:13px; font-weight:600; }
+.checkin-geo-msg {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(201, 36, 113, 0.1);
+  color: var(--red, #c92471);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
 .checkin-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:grid; place-items:center; z-index:80; padding:16px; }
 .checkin-modal { width:min(380px,100%); display:grid; gap:12px; text-align:left; }
 .checkin-modal.add-client-modal {
@@ -230,6 +240,16 @@
   font-size: 12px;
   line-height: 1.4;
 }
+.sidebar-checkin-geo-msg {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(201, 36, 113, 0.22);
+  color: #ffd0e0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
 
 .sidebar-checkin-cta {
   border: 0;
@@ -311,6 +331,10 @@
 .clients-full-list {
   display: grid;
   gap: 12px;
+}
+.clients-table-panel {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 .clients-layout > div {
   display: flex;
@@ -438,16 +462,16 @@
   height: 16px;
 }
 .clients-row-menu-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 30;
-  min-width: 180px;
+  z-index: 80;
+  min-width: 196px;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #fff;
   box-shadow: var(--shadow-md, 0 12px 28px rgba(15, 23, 42, 0.14));
+}
+.clients-row-menu-panel--fixed {
+  position: fixed;
 }
 .clients-row-menu-panel button {
   display: block;
@@ -470,6 +494,13 @@
 .clients-row-menu-panel button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+.clients-row-menu-panel button.danger {
+  color: var(--red, #c92471);
+}
+.clients-row-menu-panel button.danger:hover:not(:disabled) {
+  background: rgba(201, 36, 113, 0.1);
+  color: var(--red, #c92471);
 }
 .clients-push-status {
   display: inline-flex;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import StatCard from '../../components/AppShell/StatCard.jsx';
 import TableToolbar from '../../components/filters/TableToolbar.jsx';
 import PaginationBar from '../../components/filters/PaginationBar.jsx';
@@ -158,6 +159,36 @@ export default function ClientsPage() {
   });
   const [invoiceReady, setInvoiceReady] = useState(null);
   const [rowMenuId, setRowMenuId] = useState(null);
+  const [rowMenuPos, setRowMenuPos] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
+
+  function closeRowMenu() {
+    setRowMenuId(null);
+    setRowMenuPos(null);
+  }
+
+  function toggleRowMenu(clientId, event) {
+    event.stopPropagation();
+    if (rowMenuId === clientId) {
+      closeRowMenu();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 196;
+    const estimatedHeight = 160;
+    const gap = 6;
+    const openUp = rect.bottom + estimatedHeight + gap > window.innerHeight;
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      window.innerWidth - menuWidth - 8
+    );
+    setRowMenuId(clientId);
+    setRowMenuPos(
+      openUp
+        ? { left, bottom: window.innerHeight - rect.top + gap }
+        : { left, top: rect.bottom + gap }
+    );
+  }
 
   async function refreshDetail() {
     if (!selectedId) return;
@@ -168,7 +199,10 @@ export default function ClientsPage() {
   const loadClients = useCallback(async () => {
     const data = await api.listClients(token, {
       q: search.trim() || undefined,
-      agentId: agentFilter || undefined,
+      agentId: isAdmin && agentFilter ? agentFilter : undefined,
+      paymentStatus: isAdmin && paymentStatusFilter ? paymentStatusFilter : undefined,
+      orderStatus: isAdmin && orderStatusFilter ? orderStatusFilter : undefined,
+      productionStatus: productionStatusFilter || undefined,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       page,
@@ -187,7 +221,18 @@ export default function ClientsPage() {
       total: data.clients?.length || 0,
       totalPages: 1,
     });
-  }, [token, search, agentFilter, dateFrom, dateTo, page]);
+  }, [
+    token,
+    search,
+    agentFilter,
+    paymentStatusFilter,
+    orderStatusFilter,
+    productionStatusFilter,
+    dateFrom,
+    dateTo,
+    page,
+    isAdmin,
+  ]);
 
   useEffect(() => {
     if (!token) return;
@@ -243,16 +288,24 @@ export default function ClientsPage() {
     if (!rowMenuId) return undefined;
     function onDocPointerDown(e) {
       if (e.target.closest?.(`[data-row-menu="${rowMenuId}"]`)) return;
-      setRowMenuId(null);
+      if (e.target.closest?.('[data-row-menu-panel]')) return;
+      closeRowMenu();
     }
     function onKeyDown(e) {
-      if (e.key === 'Escape') setRowMenuId(null);
+      if (e.key === 'Escape') closeRowMenu();
+    }
+    function onReposition() {
+      closeRowMenu();
     }
     document.addEventListener('pointerdown', onDocPointerDown);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
     return () => {
       document.removeEventListener('pointerdown', onDocPointerDown);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
     };
   }, [rowMenuId]);
 
@@ -294,6 +347,27 @@ export default function ClientsPage() {
       showToast('Status updated');
     } catch (err) {
       showToast(err.message || 'Could not update status');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSoftDeleteClient(client) {
+    if (!isAdmin || !client?.id) return;
+    setBusy(true);
+    closeRowMenu();
+    setRemoveTarget(null);
+    try {
+      await api.deleteClient(token, client.id);
+      if (selectedId === client.id) {
+        setSelectedId(null);
+        setDetail(null);
+      }
+      if (clients.length === 1 && page > 1) setPage((p) => p - 1);
+      else await loadClients();
+      showToast(`${client.name} removed`);
+    } catch (err) {
+      showToast(err.message || 'Failed to remove client');
     } finally {
       setBusy(false);
     }
@@ -538,7 +612,7 @@ export default function ClientsPage() {
 
   function openPushToProduction(client, e) {
     e?.stopPropagation();
-    setRowMenuId(null);
+    closeRowMenu();
     setPushTarget(client);
     setPushForm(blankPushForm(client, assignees));
     setPushFiles([]);
@@ -546,7 +620,7 @@ export default function ClientsPage() {
 
   function openClientDetail(client, e) {
     e?.stopPropagation();
-    setRowMenuId(null);
+    closeRowMenu();
     setSelectedId(client.id);
   }
 
@@ -749,7 +823,7 @@ export default function ClientsPage() {
           <div className="panel empty-state">Loading…</div>
         ) : (
           <div className="clients-full-list">
-            <div className="panel" style={{ overflowX: 'auto' }}>
+            <div className="panel clients-table-panel">
               <table className="attendance-table responsive-table">
                 <thead>
                   <tr>
@@ -845,29 +919,10 @@ export default function ClientsPage() {
                               aria-label="Client actions"
                               aria-haspopup="menu"
                               aria-expanded={rowMenuId === c.id}
-                              onClick={() => setRowMenuId((id) => (id === c.id ? null : c.id))}
+                              onClick={(e) => toggleRowMenu(c.id, e)}
                             >
                               <Icon id="i-more" />
                             </button>
-                            {rowMenuId === c.id ? (
-                              <div className="clients-row-menu-panel" role="menu">
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={(e) => openClientDetail(c, e)}
-                                >
-                                  View detail
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  disabled={busy}
-                                  onClick={(e) => openPushToProduction(c, e)}
-                                >
-                                  {isPushedToProduction(c) ? 'Push again' : 'Push to production'}
-                                </button>
-                              </div>
-                            ) : null}
                           </div>
                         </td>
                       ) : null}
@@ -1004,6 +1059,14 @@ export default function ClientsPage() {
                   )}
                   <button type="button" className="tool-btn primary" onClick={openAddPayment}>
                     Add payment
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-btn danger-btn"
+                    disabled={busy}
+                    onClick={() => setRemoveTarget(detail.client)}
+                  >
+                    Remove
                   </button>
                 </div>
               ) : null}
@@ -1603,6 +1666,96 @@ export default function ClientsPage() {
           </div>
         </div>
       )}
+
+      {isAdmin && removeTarget && (
+        <div
+          className="checkin-modal-backdrop"
+          role="presentation"
+          onClick={() => !busy && setRemoveTarget(null)}
+        >
+          <div
+            className="checkin-modal panel"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-client-title"
+          >
+            <h3 id="remove-client-title">Remove {removeTarget.name}?</h3>
+            <p>
+              This hides the client from the list. Payments and commissions stay on record.
+            </p>
+            <div className="checkin-modal-actions">
+              <button
+                type="button"
+                className="tool-btn"
+                onClick={() => setRemoveTarget(null)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="tool-btn danger-solid"
+                disabled={busy}
+                onClick={() => handleSoftDeleteClient(removeTarget)}
+              >
+                Remove client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAdmin && rowMenuId && rowMenuPos
+        ? createPortal(
+          (() => {
+            const menuClient = clients.find((c) => c.id === rowMenuId);
+            if (!menuClient) return null;
+            return (
+              <div
+                className="clients-row-menu-panel clients-row-menu-panel--fixed"
+                role="menu"
+                data-row-menu-panel
+                style={{
+                  top: rowMenuPos.top,
+                  bottom: rowMenuPos.bottom,
+                  left: rowMenuPos.left,
+                }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => openClientDetail(menuClient, e)}
+                >
+                  View detail
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={(e) => openPushToProduction(menuClient, e)}
+                >
+                  {isPushedToProduction(menuClient) ? 'Push again' : 'Push to production'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  disabled={busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeRowMenu();
+                    setRemoveTarget(menuClient);
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })(),
+          document.body
+        )
+        : null}
     </>
   );
 }

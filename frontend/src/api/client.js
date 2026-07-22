@@ -62,7 +62,8 @@ export const api = {
 
   // --- attendance ---
   attendanceToday: (token) => request('/attendance/today', { token }),
-  attendanceCheckIn: (token) => request('/attendance/check-in', { method: 'POST', token }),
+  attendanceCheckIn: (token, body = {}) =>
+    request('/attendance/check-in', { method: 'POST', body, token }),
   attendanceCheckOut: (token, body) =>
     request('/attendance/check-out', { method: 'POST', body, token }),
   attendanceProgress: (token, body) =>
@@ -115,6 +116,8 @@ export const api = {
   createClient: (token, body) => request('/clients', { method: 'POST', body, token }),
   updateClient: (token, id, body) =>
     request(`/clients/${id}`, { method: 'PATCH', body, token }),
+  // Soft-delete (is_active = 0); payments and commissions stay.
+  deleteClient: (token, id) => request(`/clients/${id}`, { method: 'DELETE', token }),
   addClientPayment: (token, id, body) =>
     request(`/clients/${id}/payments`, { method: 'POST', body, token }),
   updateClientPayment: (token, id, paymentId, body) =>

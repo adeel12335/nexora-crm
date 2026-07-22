@@ -29,6 +29,9 @@ export default function StickyCheckIn() {
     startProgress,
     confirmModal,
     cancelModal,
+    locationGate,
+    geofenceEnabled,
+    checkInBlockedByLocation,
   } = useAttendanceSession();
 
   if (loading) {
@@ -68,6 +71,10 @@ export default function StickyCheckIn() {
           <p className="sidebar-checkin-meta-line">{metaBits.join(' · ')}</p>
         )}
 
+        {geofenceEnabled && canCheckIn && locationGate.message ? (
+          <p className="sidebar-checkin-geo-msg" role="status">{locationGate.message}</p>
+        ) : null}
+
         {openSession && (
           <button type="button" className="sidebar-checkin-cta warn" onClick={startOpenClose} disabled={busy}>
             Close open day
@@ -75,7 +82,12 @@ export default function StickyCheckIn() {
         )}
 
         {canCheckIn && (
-          <button type="button" className="sidebar-checkin-cta primary" onClick={handleCheckIn} disabled={busy}>
+          <button
+            type="button"
+            className="sidebar-checkin-cta primary"
+            onClick={handleCheckIn}
+            disabled={busy || checkInBlockedByLocation}
+          >
             <Icon id="i-check" />
             Check In
           </button>
