@@ -23,6 +23,10 @@ import {
   invoiceNumberFromPayment,
 } from '../../utils/invoiceHelpers.js';
 import { PAYMENT_METHODS, paymentMethodLabel } from '../../utils/paymentMethods.js';
+import {
+  CLIENT_PAYMENT_STATUSES,
+  CLIENT_ORDER_STATUSES,
+} from '../../utils/clientAdminStatuses.js';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 const DETAIL_PAGE_SIZE = 5;
@@ -103,6 +107,8 @@ export default function ClientsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [agentFilter, setAgentFilter] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [agents, setAgents] = useState([]);
@@ -185,6 +191,8 @@ export default function ClientsPage() {
           api.listClients(token, {
             q: search.trim() || undefined,
             agentId: isAdmin && agentFilter ? agentFilter : undefined,
+            paymentStatus: isAdmin && paymentStatusFilter ? paymentStatusFilter : undefined,
+            orderStatus: isAdmin && orderStatusFilter ? orderStatusFilter : undefined,
             dateFrom: dateFrom || undefined,
             dateTo: dateTo || undefined,
             page,
@@ -213,11 +221,11 @@ export default function ClientsPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, showToast, search, agentFilter, dateFrom, dateTo, page, isAdmin]);
+  }, [token, showToast, search, agentFilter, paymentStatusFilter, orderStatusFilter, dateFrom, dateTo, page, isAdmin]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, agentFilter, dateFrom, dateTo]);
+  }, [search, agentFilter, paymentStatusFilter, orderStatusFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (!token || !selectedId) {
@@ -241,6 +249,26 @@ export default function ClientsPage() {
       cancelled = true;
     };
   }, [token, selectedId, showToast]);
+
+  async function updateAdminStatuses(clientId, patch) {
+    if (!isAdmin || !clientId) return;
+    setBusy(true);
+    try {
+      const data = await api.updateClient(token, clientId, patch);
+      const nextClient = data.client;
+      setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, ...nextClient } : c)));
+      setDetail((prev) => (
+        prev?.client?.id === clientId
+          ? { ...prev, client: { ...prev.client, ...nextClient } }
+          : prev
+      ));
+      showToast('Status updated');
+    } catch (err) {
+      showToast(err.message || 'Could not update status');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submitClient(e) {
     e.preventDefault();
@@ -655,6 +683,14 @@ export default function ClientsPage() {
             agents={isAdmin ? agents : undefined}
             agentId={agentFilter}
             onAgentId={isAdmin ? setAgentFilter : undefined}
+            statusOptions={isAdmin ? CLIENT_PAYMENT_STATUSES : undefined}
+            status={paymentStatusFilter}
+            onStatus={isAdmin ? setPaymentStatusFilter : undefined}
+            statusPlaceholder="Payment status"
+            secondaryStatusOptions={isAdmin ? CLIENT_ORDER_STATUSES : undefined}
+            secondaryStatus={orderStatusFilter}
+            onSecondaryStatus={isAdmin ? setOrderStatusFilter : undefined}
+            secondaryStatusPlaceholder="Order status"
             showDateRange
             dateFrom={dateFrom}
             dateTo={dateTo}
@@ -683,6 +719,8 @@ export default function ClientsPage() {
                       <th>Deal</th>
                       <th>Paid</th>
                       <th>Balance</th>
+                      {isAdmin ? <th>Payment</th> : null}
+                      {isAdmin ? <th>Order</th> : null}
                       {isAdmin ? <th>Actions</th> : null}
                     </tr>
                   </thead>
@@ -699,6 +737,36 @@ export default function ClientsPage() {
                           <td data-label="Deal">{money(c.dealAmount)}</td>
                           <td data-label="Paid">{money(c.totalPaid)}</td>
                           <td data-label="Balance">{money(c.balance)}</td>
+                          {isAdmin ? (
+                            <td data-label="Payment" onClick={(e) => e.stopPropagation()}>
+                              <FancySelect
+                                value={c.paymentStatus || ''}
+                                onChange={(paymentStatus) => updateAdminStatuses(c.id, {
+                                  paymentStatus: paymentStatus || null,
+                                })}
+                                options={CLIENT_PAYMENT_STATUSES}
+                                placeholder="Set status"
+                                aria-label="Payment status"
+                                isClearable
+                                className="clients-status-select"
+                              />
+                            </td>
+                          ) : null}
+                          {isAdmin ? (
+                            <td data-label="Order" onClick={(e) => e.stopPropagation()}>
+                              <FancySelect
+                                value={c.orderStatus || ''}
+                                onChange={(orderStatus) => updateAdminStatuses(c.id, {
+                                  orderStatus: orderStatus || null,
+                                })}
+                                options={CLIENT_ORDER_STATUSES}
+                                placeholder="Set status"
+                                aria-label="Order status"
+                                isClearable
+                                className="clients-status-select"
+                              />
+                            </td>
+                          ) : null}
                           {isAdmin ? (
                             <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                               <div className="row-actions clients-row-actions">
@@ -727,7 +795,7 @@ export default function ClientsPage() {
                     ))}
                     {!clients.length && (
                       <tr>
-                        <td colSpan={isAdmin ? 6 : 5}><div className="empty-state">No clients yet</div></td>
+                        <td colSpan={isAdmin ? 8 : 5}><div className="empty-state">No clients yet</div></td>
                       </tr>
                     )}
                   </tbody>
@@ -759,6 +827,38 @@ export default function ClientsPage() {
                         Agent {detail.client.agentName} · Paid {money(detail.client.totalPaid)} of{' '}
                         {money(detail.client.dealAmount)}
                       </p>
+                      {isAdmin ? (
+                        <div className="client-admin-statuses">
+                          <label>
+                            Payment status
+                            <FancySelect
+                              value={detail.client.paymentStatus || ''}
+                              onChange={(paymentStatus) => updateAdminStatuses(detail.client.id, {
+                                paymentStatus: paymentStatus || null,
+                              })}
+                              options={CLIENT_PAYMENT_STATUSES}
+                              placeholder="Set payment status"
+                              aria-label="Payment status"
+                              isClearable
+                              fullWidth
+                            />
+                          </label>
+                          <label>
+                            Order status
+                            <FancySelect
+                              value={detail.client.orderStatus || ''}
+                              onChange={(orderStatus) => updateAdminStatuses(detail.client.id, {
+                                orderStatus: orderStatus || null,
+                              })}
+                              options={CLIENT_ORDER_STATUSES}
+                              placeholder="Set order status"
+                              aria-label="Order status"
+                              isClearable
+                              fullWidth
+                            />
+                          </label>
+                        </div>
+                      ) : null}
                     </div>
                     {isAdmin ? (
                       <div className="row-actions">

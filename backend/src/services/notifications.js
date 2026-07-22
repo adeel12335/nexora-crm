@@ -363,8 +363,15 @@ export function buildProductionCardEvents({
       lines.push('', 'Description:', description);
     }
     if (delivery.url) lines.push(`Link: ${delivery.url}`);
-    if (delivery.name) lines.push(`File: ${delivery.name}`);
-    if (!description && !delivery.url && !delivery.name) {
+    const fileNames = Array.isArray(delivery.files) && delivery.files.length
+      ? delivery.files.map((f) => f?.name).filter(Boolean)
+      : (delivery.name ? [delivery.name] : []);
+    if (fileNames.length === 1) lines.push(`File: ${fileNames[0]}`);
+    if (fileNames.length > 1) {
+      lines.push(`Files (${fileNames.length}):`);
+      for (const name of fileNames.slice(0, 5)) lines.push(`• ${name}`);
+    }
+    if (!description && !delivery.url && !fileNames.length) {
       lines.push('', 'A delivery was added.');
     }
     events.push({

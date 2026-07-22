@@ -221,10 +221,40 @@ export default function KanbanBoard() {
         merged.push(local);
         continue;
       }
+      const localFiles = Array.isArray(local.files) && local.files.length
+        ? local.files
+        : (local.fileUrl || local.name
+          ? [{ id: local.id, name: local.name, size: local.size, type: local.type, fileUrl: local.fileUrl }]
+          : []);
+      const serverFiles = Array.isArray(server.files) && server.files.length
+        ? server.files
+        : (server.fileUrl || server.name
+          ? [{ id: server.id, name: server.name, size: server.size, type: server.type, fileUrl: server.fileUrl }]
+          : []);
+      const serverFileById = new Map(serverFiles.map((f) => [String(f.id || f.name), f]));
+      const files = localFiles.map((f) => {
+        const key = String(f.id || f.name);
+        const sf = serverFileById.get(key);
+        return {
+          ...sf,
+          ...f,
+          fileUrl: f.fileUrl || sf?.fileUrl || null,
+        };
+      });
+      for (const sf of serverFiles) {
+        const key = String(sf.id || sf.name);
+        if (files.some((f) => String(f.id || f.name) === key)) continue;
+        files.push(sf);
+      }
+      const primary = files[0] || null;
       merged.push({
         ...server,
         ...local,
-        fileUrl: local.fileUrl || server.fileUrl || null,
+        files,
+        name: primary?.name || local.name || server.name || null,
+        size: primary?.size ?? local.size ?? server.size ?? null,
+        type: primary?.type || local.type || server.type || null,
+        fileUrl: primary?.fileUrl || local.fileUrl || server.fileUrl || null,
         url: local.url || server.url || null,
         feedback: local.feedback || server.feedback,
       });
@@ -566,7 +596,7 @@ export default function KanbanBoard() {
     });
   }
 
-  async function handleAddDelivery(cardId, { description, url, file }) {
+  async function handleAddDelivery(cardId, { description, url, file, files }) {
     const card = cardsRef.current.find((c) => c.id === cardId);
     if (!card) return false;
     const existing = card.deliveryList || [];
@@ -575,31 +605,34 @@ export default function KanbanBoard() {
       return false;
     }
 
-    let fileFields = {
-      name: null,
-      size: null,
-      type: null,
-      fileUrl: null,
-    };
+    const picked = Array.isArray(files) && files.length
+      ? files
+      : (file ? [file] : []);
+
+    let fileEntries = [];
     try {
-      if (file) {
-        fileFields = {
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          fileUrl: await readFileAsDataUrl(file),
-        };
-      }
+      fileEntries = await Promise.all(picked.map(async (f) => ({
+        id: nextFileId++,
+        name: f.name,
+        size: f.size,
+        type: f.type || 'application/octet-stream',
+        fileUrl: await readFileAsDataUrl(f),
+      })));
     } catch (err) {
       showToast(err.message || 'Could not read file');
       return false;
     }
 
+    const primary = fileEntries[0] || null;
     const entry = {
       id: nextFileId++,
       description,
       url: url || null,
-      ...fileFields,
+      name: primary?.name || null,
+      size: primary?.size ?? null,
+      type: primary?.type || null,
+      fileUrl: primary?.fileUrl || null,
+      files: fileEntries,
       createdAt: new Date().toISOString(),
       createdBy: user
         ? { id: user.id, name: user.name, role: user.role }
@@ -610,8 +643,8 @@ export default function KanbanBoard() {
 
     const deliveryList = [entry, ...existing].slice(0, MAX_DELIVERIES_PER_CARD);
     patchCardLocal(cardId, { deliveryList });
-    pushActivity(cardId, 'added a delivery');
-    showToast('Delivery added');
+    pushActivity(cardId, fileEntries.length > 1 ? `added a delivery (${fileEntries.length} files)` : 'added a delivery');
+    showToast(fileEntries.length > 1 ? `Delivery added (${fileEntries.length} files)` : 'Delivery added');
 
     enqueueCardSave(cardId, async () => {
       try {
@@ -621,7 +654,7 @@ export default function KanbanBoard() {
           latest?.deliveryList || deliveryList,
           serverCard.deliveryList || [],
         ).slice(0, MAX_DELIVERIES_PER_CARD)
-          .map((d) => (String(d.id) === String(entry.id) ? { ...d, _pending: false } : { ...d, _pending: false }));
+          .map((d) => ({ ...d, _pending: false }));
         await persistCard(cardId, { deliveryList: merged }, { sync: false });
         patchCardLocal(cardId, { deliveryList: merged });
         showToast('Delivery saved');

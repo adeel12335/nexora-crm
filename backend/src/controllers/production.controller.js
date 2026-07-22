@@ -118,20 +118,51 @@ function sanitizeDescriptionForProduction(description) {
     .trim();
 }
 
+function mapDeliveryFiles(item, { light = false } = {}) {
+  const fromArray = Array.isArray(item.files) ? item.files : [];
+  const legacy = (item.fileUrl || item.name)
+    ? [{
+        id: item.id,
+        name: item.name || null,
+        size: item.size ?? null,
+        type: item.type || null,
+        fileUrl: item.fileUrl ?? null,
+      }]
+    : [];
+  const source = fromArray.length ? fromArray : legacy;
+  return source.map((f, index) => {
+    const fileUrl = f?.fileUrl ?? f?.url ?? null;
+    const mapped = {
+      id: f?.id ?? `${item.id || 'file'}-${index}`,
+      name: f?.name || null,
+      size: f?.size ?? null,
+      type: f?.type || null,
+      fileUrl,
+    };
+    if (!light) return mapped;
+    return {
+      ...mapped,
+      fileUrl: typeof mapped.fileUrl === 'string' && mapped.fileUrl.startsWith('data:') ? null : mapped.fileUrl,
+    };
+  }).filter((f) => f.name || f.fileUrl);
+}
+
 function mapDeliveryList(raw, { light = false } = {}) {
   const list = Array.isArray(raw) ? raw : [];
   return list.map((original) => {
     const item = migrateLegacyDelivery(original) || {};
-    const fileUrl = item.fileUrl ?? null;
+    const files = mapDeliveryFiles(item, { light });
+    const primary = files[0] || null;
     const linkUrl = item.url ?? null;
     const mapped = {
       id: item.id,
       description: String(item.description || '').trim(),
       url: linkUrl,
-      name: item.name || null,
-      size: item.size ?? null,
-      type: item.type || null,
-      fileUrl,
+      name: primary?.name || item.name || null,
+      size: primary?.size ?? item.size ?? null,
+      type: primary?.type || item.type || null,
+      fileUrl: primary?.fileUrl ?? null,
+      files,
       createdAt: item.createdAt || null,
       createdBy: item.createdBy || null,
       feedback: defaultDeliveryFeedback(item.feedback),
@@ -412,34 +443,49 @@ function sanitizeDeliveryList(deliveryList) {
       }
     }
 
-    let fileName = null;
-    let fileSize = null;
-    let fileType = null;
-    let fileUrl = null;
-    const hasFile = Boolean(
-      raw?.fileUrl
-      || (raw?.name && Number(raw?.size) > 0)
-    );
-    if (hasFile) {
+    const rawFiles = Array.isArray(raw?.files) && raw.files.length
+      ? raw.files
+      : ((raw?.fileUrl || (raw?.name && Number(raw?.size) > 0))
+        ? [{
+            id: raw.id,
+            name: raw.name,
+            size: raw.size,
+            type: raw.type,
+            fileUrl: raw.fileUrl || null,
+          }]
+        : []);
+
+    if (rawFiles.length > 5) {
+      const err = new Error('A delivery can have at most 5 files');
+      err.status = 400;
+      throw err;
+    }
+
+    const files = [];
+    for (const candidate of rawFiles) {
       const { file, totalBytes: nextBytes } = sanitizeFileAttachment(
         {
-          id: raw.id,
-          name: raw.name,
-          size: raw.size,
-          type: raw.type,
-          url: raw.fileUrl || null,
+          id: candidate.id,
+          name: candidate.name,
+          size: candidate.size,
+          type: candidate.type,
+          url: candidate.fileUrl || candidate.url || null,
           uploadedAt: raw.createdAt,
         },
         { totalBytes, label: 'Delivery file' },
       );
       totalBytes = nextBytes;
-      fileName = file.name;
-      fileSize = file.size;
-      fileType = file.type;
-      fileUrl = file.url;
+      files.push({
+        id: file.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        fileUrl: file.url,
+      });
     }
 
-    if (!description && !linkUrl && !fileUrl) {
+    const primary = files[0] || null;
+    if (!description && !linkUrl && !primary) {
       const err = new Error('Add a description, link, or file for each delivery');
       err.status = 400;
       throw err;
@@ -458,10 +504,11 @@ function sanitizeDeliveryList(deliveryList) {
       id: raw.id ?? Date.now(),
       description,
       url: linkUrl,
-      name: fileName,
-      size: fileSize,
-      type: fileType,
-      fileUrl,
+      name: primary?.name || null,
+      size: primary?.size ?? null,
+      type: primary?.type || null,
+      fileUrl: primary?.fileUrl || null,
+      files,
       createdAt: raw.createdAt || new Date().toISOString(),
       createdBy,
       feedback: defaultDeliveryFeedback(raw.feedback),

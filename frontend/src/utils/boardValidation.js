@@ -4,6 +4,7 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_FILES_PER_CARD = 10;
 const MAX_DELIVERIES_PER_CARD = 5;
+const MAX_FILES_PER_DELIVERY = 5;
 const MAX_TITLE = 120;
 const MAX_CLIENT = 80;
 const MAX_DESCRIPTION = 2000;
@@ -197,7 +198,7 @@ export function normalizeDeliveryUrl(raw) {
   return url;
 }
 
-export function validateDelivery({ description, url, file } = {}, existingDeliveries = []) {
+export function validateDelivery({ description, url, file, files } = {}, existingDeliveries = []) {
   const errors = [];
   const existing = Array.isArray(existingDeliveries) ? existingDeliveries : [];
 
@@ -208,6 +209,7 @@ export function validateDelivery({ description, url, file } = {}, existingDelive
       description: '',
       url: null,
       file: null,
+      files: [],
     };
   }
 
@@ -227,26 +229,52 @@ export function validateDelivery({ description, url, file } = {}, existingDelive
     }
   }
 
-  let okFile = null;
-  if (file) {
-    const ext = extOf(file.name);
-    if (!ALLOWED_EXT.has(ext)) errors.push(`"${file.name}" type is not allowed`);
-    else if (file.size <= 0) errors.push(`"${file.name}" is empty`);
-    else if (file.size > MAX_FILE_BYTES) errors.push(`"${file.name}" exceeds 5 MB`);
-    else {
-      const existingBytes = existing
-        .filter((d) => d?.fileUrl || d?.name)
-        .reduce((sum, d) => sum + Number(d.size || 0), 0);
-      if (existingBytes + file.size > MAX_TOTAL_FILE_BYTES) {
-        errors.push(`Delivery files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
-      } else {
-        okFile = file;
-      }
-    }
+  const picked = [];
+  if (Array.isArray(files) && files.length) {
+    for (const f of files) if (f) picked.push(f);
+  } else if (file) {
+    picked.push(file);
   }
 
-  if (!desc && !normalizedUrl && !okFile && !file) {
+  if (picked.length > MAX_FILES_PER_DELIVERY) {
+    errors.push(`A delivery can have at most ${MAX_FILES_PER_DELIVERY} files`);
+  }
+
+  const okFiles = [];
+  let existingBytes = existing.reduce((sum, d) => {
+    const list = Array.isArray(d?.files) && d.files.length
+      ? d.files
+      : (d?.fileUrl || d?.name ? [{ size: d.size }] : []);
+    return sum + list.reduce((s, f) => s + Number(f.size || 0), 0);
+  }, 0);
+
+  for (const f of picked.slice(0, MAX_FILES_PER_DELIVERY)) {
+    const ext = extOf(f.name);
+    if (!ALLOWED_EXT.has(ext)) {
+      errors.push(`"${f.name}" type is not allowed`);
+      continue;
+    }
+    if (f.size <= 0) {
+      errors.push(`"${f.name}" is empty`);
+      continue;
+    }
+    if (f.size > MAX_FILE_BYTES) {
+      errors.push(`"${f.name}" exceeds 5 MB`);
+      continue;
+    }
+    if (existingBytes + f.size > MAX_TOTAL_FILE_BYTES) {
+      errors.push(`Delivery files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
+      continue;
+    }
+    existingBytes += f.size;
+    okFiles.push(f);
+  }
+
+  if (!desc && !normalizedUrl && !okFiles.length && !picked.length) {
     errors.push('Add a description, link, or file');
+  }
+  if (picked.length && !okFiles.length && !errors.length) {
+    errors.push('No valid files selected');
   }
 
   return {
@@ -254,7 +282,8 @@ export function validateDelivery({ description, url, file } = {}, existingDelive
     errors,
     description: desc,
     url: normalizedUrl,
-    file: okFile,
+    file: okFiles[0] || null,
+    files: okFiles,
   };
 }
 
@@ -295,4 +324,4 @@ export function fromDateInputValue(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export { MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };
+export { MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, MAX_FILES_PER_DELIVERY, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };

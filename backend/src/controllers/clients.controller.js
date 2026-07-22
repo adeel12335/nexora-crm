@@ -7,6 +7,12 @@ import {
   calcCommissionAmount,
 } from '../utils/commissionCycle.js';
 import { karachiWorkDate } from '../utils/karachiTime.js';
+import {
+  CLIENT_PAYMENT_STATUS_SET,
+  CLIENT_ORDER_STATUS_SET,
+  clientPaymentStatusLabel,
+  clientOrderStatusLabel,
+} from '../utils/clientAdminStatuses.js';
 
 const PRODUCTION_STATUSES = new Set(['pending', 'in_production', 'done']);
 
@@ -37,7 +43,7 @@ function toClient(row, { role = null } = {}) {
     };
   }
 
-  return {
+  const client = {
     id: row.id,
     name: row.name,
     email: row.email,
@@ -52,6 +58,18 @@ function toClient(row, { role = null } = {}) {
     productionStatus: row.production_status || 'pending',
     createdAt: row.created_at,
   };
+
+  // Sheet-style CRM statuses — admin only (never leak to agent/manager).
+  if (role === 'admin') {
+    const paymentStatus = row.payment_status || null;
+    const orderStatus = row.order_status || null;
+    client.paymentStatus = paymentStatus;
+    client.paymentStatusLabel = clientPaymentStatusLabel(paymentStatus);
+    client.orderStatus = orderStatus;
+    client.orderStatusLabel = clientOrderStatusLabel(orderStatus);
+  }
+
+  return client;
 }
 
 function toPayment(row, { includeSensitive = true } = {}) {
@@ -177,15 +195,17 @@ async function createCommissionEntries(conn, { paymentId, clientId, agentId, man
 }
 
 /**
- * GET /api/clients?q=&agentId=&dateFrom=&dateTo=&productionStatus=&page=&pageSize=
+ * GET /api/clients?q=&agentId=&dateFrom=&dateTo=&productionStatus=&paymentStatus=&orderStatus=&page=&pageSize=
  * dateFrom/dateTo filter on client created_at (YYYY-MM-DD).
+ * paymentStatus / orderStatus filters are admin-only.
  * Omit pageSize (or pass 0) to return every match.
  */
 export async function listClients(req, res) {
-  const { q, agentId, dateFrom, dateTo, productionStatus } = req.query;
+  const { q, agentId, dateFrom, dateTo, productionStatus, paymentStatus, orderStatus } = req.query;
   const page = Math.max(1, Number(req.query.page) || 1);
   const rawSize = req.query.pageSize === undefined ? 0 : Number(req.query.pageSize);
   const pageSize = Number.isFinite(rawSize) && rawSize > 0 ? Math.min(500, Math.floor(rawSize)) : 0;
+  const isAdmin = req.user?.role === 'admin';
 
   let where = 'WHERE 1=1';
   const filterParams = [];
@@ -202,13 +222,21 @@ export async function listClients(req, res) {
     const like = `%${q}%`;
     filterParams.push(like, like, like);
   }
-  if (agentId && req.user.role === 'admin') {
+  if (agentId && isAdmin) {
     where += ` AND c.agent_id = ?`;
     filterParams.push(Number(agentId));
   }
   if (productionStatus && PRODUCTION_STATUSES.has(String(productionStatus))) {
     where += ` AND c.production_status = ?`;
     filterParams.push(String(productionStatus));
+  }
+  if (isAdmin && paymentStatus && CLIENT_PAYMENT_STATUS_SET.has(String(paymentStatus))) {
+    where += ` AND c.payment_status = ?`;
+    filterParams.push(String(paymentStatus));
+  }
+  if (isAdmin && orderStatus && CLIENT_ORDER_STATUS_SET.has(String(orderStatus))) {
+    where += ` AND c.order_status = ?`;
+    filterParams.push(String(orderStatus));
   }
   if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
     where += ` AND DATE(c.created_at) >= ?`;
@@ -404,7 +432,7 @@ export async function createClient(req, res) {
   );
 
   const [[row]] = await pool.query(`${CLIENT_SELECT} WHERE c.id = ?`, [result.insertId]);
-  res.status(201).json({ client: toClient(row) });
+  res.status(201).json({ client: toClient(row, { role: req.user?.role || 'admin' }) });
 }
 
 /** PATCH /api/clients/:id */
@@ -434,10 +462,36 @@ export async function updateClient(req, res) {
     productionStatus = nextStatus;
   }
 
+  let paymentStatus = existing.payment_status || null;
+  if (req.body.paymentStatus !== undefined) {
+    if (req.body.paymentStatus === null || req.body.paymentStatus === '') {
+      paymentStatus = null;
+    } else {
+      const next = String(req.body.paymentStatus);
+      if (!CLIENT_PAYMENT_STATUS_SET.has(next)) {
+        return res.status(400).json({ error: 'Invalid paymentStatus' });
+      }
+      paymentStatus = next;
+    }
+  }
+
+  let orderStatus = existing.order_status || null;
+  if (req.body.orderStatus !== undefined) {
+    if (req.body.orderStatus === null || req.body.orderStatus === '') {
+      orderStatus = null;
+    } else {
+      const next = String(req.body.orderStatus);
+      if (!CLIENT_ORDER_STATUS_SET.has(next)) {
+        return res.status(400).json({ error: 'Invalid orderStatus' });
+      }
+      orderStatus = next;
+    }
+  }
+
   await pool.query(
     `UPDATE clients SET
        name = ?, email = ?, phone = ?, agent_id = ?, deal_amount = ?, notes = ?,
-       is_active = ?, production_status = ?
+       is_active = ?, production_status = ?, payment_status = ?, order_status = ?
      WHERE id = ?`,
     [
       name,
@@ -460,12 +514,14 @@ export async function updateClient(req, res) {
         : existing.notes,
       req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : existing.is_active,
       productionStatus,
+      paymentStatus,
+      orderStatus,
       req.params.id,
     ]
   );
 
   const [[row]] = await pool.query(`${CLIENT_SELECT} WHERE c.id = ?`, [req.params.id]);
-  res.json({ client: toClient(row) });
+  res.json({ client: toClient(row, { role: req.user?.role || null }) });
 }
 
 /** POST /api/clients/:id/payments */

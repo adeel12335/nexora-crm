@@ -19,6 +19,7 @@ import {
   validateFeedback,
   validateFiles,
   MAX_DELIVERIES_PER_CARD,
+  MAX_FILES_PER_DELIVERY,
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
 
@@ -39,6 +40,20 @@ function deliveryFeedbackPillClass(status) {
   if (status === 'changes_requested') return 'is-changes';
   if (status === 'pending') return 'is-pending';
   return '';
+}
+
+function deliveryAttachmentList(item) {
+  if (Array.isArray(item?.files) && item.files.length) return item.files;
+  if (item?.fileUrl || item?.name) {
+    return [{
+      id: item.id,
+      name: item.name,
+      size: item.size,
+      type: item.type,
+      fileUrl: item.fileUrl,
+    }];
+  }
+  return [];
 }
 
 export default function CardDrawer({
@@ -71,7 +86,7 @@ export default function CardDrawer({
   const [comment, setComment] = useState('');
   const [deliveryDescription, setDeliveryDescription] = useState('');
   const [deliveryUrl, setDeliveryUrl] = useState('');
-  const [deliveryFile, setDeliveryFile] = useState(null);
+  const [deliveryFiles, setDeliveryFiles] = useState([]);
   const [deliveryFeedbackDrafts, setDeliveryFeedbackDrafts] = useState({});
   const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [commentBusy, setCommentBusy] = useState(false);
@@ -90,7 +105,7 @@ export default function CardDrawer({
     setComment('');
     setDeliveryDescription('');
     setDeliveryUrl('');
-    setDeliveryFile(null);
+    setDeliveryFiles([]);
     setDeliveryBusy(false);
     setCommentBusy(false);
     setDirty(false);
@@ -235,7 +250,7 @@ export default function CardDrawer({
     e.preventDefault();
     if (deliveryBusy) return;
     const result = validateDelivery(
-      { description: deliveryDescription, url: deliveryUrl, file: deliveryFile },
+      { description: deliveryDescription, url: deliveryUrl, files: deliveryFiles },
       deliveries,
     );
     if (!result.ok) {
@@ -246,11 +261,11 @@ export default function CardDrawer({
     const payload = {
       description: result.description,
       url: result.url,
-      file: result.file,
+      files: result.files,
     };
     setDeliveryDescription('');
     setDeliveryUrl('');
-    setDeliveryFile(null);
+    setDeliveryFiles([]);
     if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
 
     setDeliveryBusy(true);
@@ -259,7 +274,7 @@ export default function CardDrawer({
       if (!ok) {
         setDeliveryDescription(payload.description || '');
         setDeliveryUrl(payload.url || '');
-        setDeliveryFile(payload.file || null);
+        setDeliveryFiles(payload.files || []);
       }
     } finally {
       setDeliveryBusy(false);
@@ -267,8 +282,23 @@ export default function CardDrawer({
   }
 
   function handleDeliveryFilePick(e) {
-    const file = e.target.files?.[0] || null;
-    setDeliveryFile(file);
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    setDeliveryFiles((prev) => {
+      const merged = [...prev];
+      for (const file of picked) {
+        if (merged.length >= MAX_FILES_PER_DELIVERY) break;
+        const duplicate = merged.some((f) => f.name === file.name && f.size === file.size);
+        if (!duplicate) merged.push(file);
+      }
+      return merged.slice(0, MAX_FILES_PER_DELIVERY);
+    });
+    e.target.value = '';
+  }
+
+  function removeDeliveryFile(index) {
+    setDeliveryFiles((prev) => prev.filter((_, i) => i !== index));
+    if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
   }
 
   async function handleDeliveryFeedbackSave(deliveryId) {
@@ -597,7 +627,7 @@ export default function CardDrawer({
               <form className="detail-form delivery-compose" id="delivery-add-form" onSubmit={handleDeliverySubmit} noValidate>
                 <div className="delivery-compose-head">
                   <h3>Add delivery</h3>
-                  <p>Optional description, link, or file — max {MAX_DELIVERIES_PER_CARD}.</p>
+                  <p>Optional description, link, or files — max {MAX_DELIVERIES_PER_CARD} deliveries, {MAX_FILES_PER_DELIVERY} files each.</p>
                 </div>
 
                 <label>
@@ -627,40 +657,47 @@ export default function CardDrawer({
                 </label>
 
                 <div className="delivery-file-field">
-                  <span className="delivery-file-label">File <span className="field-hint">(optional)</span></span>
+                  <span className="delivery-file-label">
+                    Files <span className="field-hint">(optional, up to {MAX_FILES_PER_DELIVERY})</span>
+                  </span>
                   <button
                     type="button"
                     className="delivery-file-btn"
                     onClick={() => deliveryFileInputRef.current?.click()}
-                    disabled={deliveryBusy}
+                    disabled={deliveryBusy || deliveryFiles.length >= MAX_FILES_PER_DELIVERY}
                   >
                     <Icon id="i-paperclip" />
-                    <span>{deliveryFile ? deliveryFile.name : 'Choose file'}</span>
+                    <span>
+                      {deliveryFiles.length
+                        ? `${deliveryFiles.length} file${deliveryFiles.length > 1 ? 's' : ''} selected`
+                        : 'Choose files'}
+                    </span>
                   </button>
                   <input
                     ref={deliveryFileInputRef}
                     type="file"
                     hidden
+                    multiple
                     onChange={handleDeliveryFilePick}
                     accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
                     disabled={deliveryBusy}
                   />
-                  {deliveryFile ? (
-                    <p className="muted-hint">
-                      {formatFileSize(deliveryFile.size || 0)}
-                      {' · '}
-                      <button
-                        type="button"
-                        className="text-btn"
-                        disabled={deliveryBusy}
-                        onClick={() => {
-                          setDeliveryFile(null);
-                          if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </p>
+                  {deliveryFiles.length ? (
+                    <ul className="delivery-selected-files">
+                      {deliveryFiles.map((file, index) => (
+                        <li key={`${file.name}-${file.size}-${index}`}>
+                          <span>{file.name} · {formatFileSize(file.size || 0)}</span>
+                          <button
+                            type="button"
+                            className="text-btn"
+                            disabled={deliveryBusy}
+                            onClick={() => removeDeliveryFile(index)}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </div>
 
@@ -670,7 +707,7 @@ export default function CardDrawer({
                   disabled={
                     deliveryBusy
                     || deliveries.length >= MAX_DELIVERIES_PER_CARD
-                    || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
+                    || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFiles.length)
                   }
                 >
                   {deliveryBusy ? (
@@ -693,11 +730,11 @@ export default function CardDrawer({
                       note: fb.note || '',
                     };
                     const linkHref = item.url || null;
-                    const fileHref = item.fileUrl || null;
+                    const attachments = deliveryAttachmentList(item);
                     return (
                       <li key={item.id} className={`delivery-card${item._pending ? ' is-pending' : ''}`}>
                         <div className="delivery-card-top">
-                          <p>{item.description || item.name || item.url || 'Delivery'}</p>
+                          <p>{item.description || attachments[0]?.name || item.url || 'Delivery'}</p>
                           <div className="delivery-card-actions">
                             {item._pending ? (
                               <span className="delivery-pending-pill">
@@ -723,20 +760,23 @@ export default function CardDrawer({
                               <Icon id="i-link" /> Open link
                             </a>
                           ) : null}
-                          {fileHref ? (
-                            <a
-                              className="tool-btn"
-                              href={fileHref}
-                              download={item.name || undefined}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <Icon id="i-paperclip" /> {item.name || 'Open file'}
-                            </a>
-                          ) : item.name ? (
-                            <span className="delivery-kind-pill">{item.name}</span>
-                          ) : null}
-                          {!linkHref && !fileHref && !item.name ? (
+                          {attachments.map((file) => (
+                            file.fileUrl ? (
+                              <a
+                                key={file.id || file.name}
+                                className="tool-btn"
+                                href={file.fileUrl}
+                                download={file.name || undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Icon id="i-paperclip" /> {file.name || 'Open file'}
+                              </a>
+                            ) : file.name ? (
+                              <span key={file.id || file.name} className="delivery-kind-pill">{file.name}</span>
+                            ) : null
+                          ))}
+                          {!linkHref && !attachments.length ? (
                             <span className="delivery-kind-pill">Note only</span>
                           ) : null}
                         </div>

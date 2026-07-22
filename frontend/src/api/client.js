@@ -101,6 +101,8 @@ export const api = {
       if (query.q) params.set('q', query.q);
       if (query.agentId) params.set('agentId', String(query.agentId));
       if (query.productionStatus) params.set('productionStatus', String(query.productionStatus));
+      if (query.paymentStatus) params.set('paymentStatus', String(query.paymentStatus));
+      if (query.orderStatus) params.set('orderStatus', String(query.orderStatus));
       if (query.dateFrom) params.set('dateFrom', query.dateFrom);
       if (query.dateTo) params.set('dateTo', query.dateTo);
       if (query.page) params.set('page', String(query.page));
