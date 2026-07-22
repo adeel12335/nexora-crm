@@ -73,6 +73,8 @@ export default function CardDrawer({
   const [deliveryUrl, setDeliveryUrl] = useState('');
   const [deliveryFile, setDeliveryFile] = useState(null);
   const [deliveryFeedbackDrafts, setDeliveryFeedbackDrafts] = useState({});
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const [commentBusy, setCommentBusy] = useState(false);
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState(null);
@@ -89,6 +91,8 @@ export default function CardDrawer({
     setDeliveryDescription('');
     setDeliveryUrl('');
     setDeliveryFile(null);
+    setDeliveryBusy(false);
+    setCommentBusy(false);
     setDirty(false);
     setConfirmDeleteCard(false);
     setConfirmDeleteDelivery(null);
@@ -197,13 +201,20 @@ export default function CardDrawer({
 
   function handleCommentSubmit(e) {
     e.preventDefault();
+    if (commentBusy) return;
     const err = validateComment(comment);
     if (err) {
       showErrors('Comment not added', [err]);
       return;
     }
-    onAddComment(comment.trim());
+    const text = comment.trim();
     setComment('');
+    setCommentBusy(true);
+    try {
+      onAddComment(text);
+    } finally {
+      setCommentBusy(false);
+    }
   }
 
   function handleFilePick(e) {
@@ -222,6 +233,7 @@ export default function CardDrawer({
 
   async function handleDeliverySubmit(e) {
     e.preventDefault();
+    if (deliveryBusy) return;
     const result = validateDelivery(
       { description: deliveryDescription, url: deliveryUrl, file: deliveryFile },
       deliveries,
@@ -230,16 +242,27 @@ export default function CardDrawer({
       showErrors('Cannot add delivery', result.errors);
       return;
     }
-    const ok = await onAddDelivery?.(card.id, {
+    // Clear form immediately so UI feels instant; save continues in background.
+    const payload = {
       description: result.description,
       url: result.url,
       file: result.file,
-    });
-    if (ok) {
-      setDeliveryDescription('');
-      setDeliveryUrl('');
-      setDeliveryFile(null);
-      if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
+    };
+    setDeliveryDescription('');
+    setDeliveryUrl('');
+    setDeliveryFile(null);
+    if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
+
+    setDeliveryBusy(true);
+    try {
+      const ok = await onAddDelivery?.(card.id, payload);
+      if (!ok) {
+        setDeliveryDescription(payload.description || '');
+        setDeliveryUrl(payload.url || '');
+        setDeliveryFile(payload.file || null);
+      }
+    } finally {
+      setDeliveryBusy(false);
     }
   }
 
@@ -585,17 +608,21 @@ export default function CardDrawer({
                     placeholder="What was delivered?"
                     maxLength={1000}
                     rows={3}
+                    disabled={deliveryBusy}
                   />
                 </label>
 
                 <label>
                   Link <span className="field-hint">(optional)</span>
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="url"
                     value={deliveryUrl}
                     onChange={(e) => setDeliveryUrl(e.target.value)}
                     placeholder="https://drive.google.com/…"
                     maxLength={500}
+                    disabled={deliveryBusy}
                   />
                 </label>
 
@@ -605,6 +632,7 @@ export default function CardDrawer({
                     type="button"
                     className="delivery-file-btn"
                     onClick={() => deliveryFileInputRef.current?.click()}
+                    disabled={deliveryBusy}
                   >
                     <Icon id="i-paperclip" />
                     <span>{deliveryFile ? deliveryFile.name : 'Choose file'}</span>
@@ -615,6 +643,7 @@ export default function CardDrawer({
                     hidden
                     onChange={handleDeliveryFilePick}
                     accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+                    disabled={deliveryBusy}
                   />
                   {deliveryFile ? (
                     <p className="muted-hint">
@@ -623,6 +652,7 @@ export default function CardDrawer({
                       <button
                         type="button"
                         className="text-btn"
+                        disabled={deliveryBusy}
                         onClick={() => {
                           setDeliveryFile(null);
                           if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
@@ -638,11 +668,19 @@ export default function CardDrawer({
                   type="submit"
                   className="primary-btn delivery-submit"
                   disabled={
-                    deliveries.length >= MAX_DELIVERIES_PER_CARD
+                    deliveryBusy
+                    || deliveries.length >= MAX_DELIVERIES_PER_CARD
                     || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
                   }
                 >
-                  Add delivery
+                  {deliveryBusy ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Adding…
+                    </>
+                  ) : (
+                    'Add delivery'
+                  )}
                 </button>
               </form>
 
@@ -657,17 +695,26 @@ export default function CardDrawer({
                     const linkHref = item.url || null;
                     const fileHref = item.fileUrl || null;
                     return (
-                      <li key={item.id} className="delivery-card">
+                      <li key={item.id} className={`delivery-card${item._pending ? ' is-pending' : ''}`}>
                         <div className="delivery-card-top">
                           <p>{item.description || item.name || item.url || 'Delivery'}</p>
-                          <button
-                            type="button"
-                            className="plain-icon"
-                            aria-label="Remove delivery"
-                            onClick={() => setConfirmDeleteDelivery(item)}
-                          >
-                            <Icon id="i-close" />
-                          </button>
+                          <div className="delivery-card-actions">
+                            {item._pending ? (
+                              <span className="delivery-pending-pill">
+                                <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
+                                Saving…
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="plain-icon"
+                              aria-label="Remove delivery"
+                              disabled={Boolean(item._pending) || deliveryBusy}
+                              onClick={() => setConfirmDeleteDelivery(item)}
+                            >
+                              <Icon id="i-close" />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="delivery-assets">
@@ -758,10 +805,18 @@ export default function CardDrawer({
               {commentList.length || activity.length ? (
                 <div className="comment-feed">
                   {commentList.map((entry) => (
-                    <div className="activity is-comment" key={entry.id}>
-                      <img src={entry.avatar} alt="" />
+                    <div className={`activity is-comment${entry._pending ? ' is-pending' : ''}`} key={entry.id}>
+                      <img src={entry.avatar || '/assets/avatar-jane.svg'} alt="" />
                       <div>
-                        <p><strong>{entry.author}</strong></p>
+                        <p>
+                          <strong>{entry.author}</strong>
+                          {entry._pending ? (
+                            <span className="delivery-pending-pill">
+                              <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
+                              Saving…
+                            </span>
+                          ) : null}
+                        </p>
                         <p className="comment-text">{entry.text}</p>
                       </div>
                       <time>{entry.time}</time>
@@ -855,28 +910,23 @@ export default function CardDrawer({
                 placeholder="Write a comment…"
                 aria-label="Add a comment"
                 maxLength={1000}
+                disabled={commentBusy}
               />
-              <button type="submit" className="primary-btn comment-send" disabled={!comment.trim()}>
-                Send
+              <button type="submit" className="primary-btn comment-send" disabled={commentBusy || !comment.trim()}>
+                {commentBusy ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Sending…
+                  </>
+                ) : (
+                  'Send'
+                )}
               </button>
             </form>
           )}
           {tab === 'files' && (
             <button type="button" className="primary-btn detail-save-btn" onClick={() => fileInputRef.current?.click()}>
               Upload file
-            </button>
-          )}
-          {tab === 'delivery' && (
-            <button
-              type="submit"
-              form="delivery-add-form"
-              className="primary-btn detail-save-btn"
-              disabled={
-                deliveries.length >= MAX_DELIVERIES_PER_CARD
-                || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
-              }
-            >
-              Add delivery
             </button>
           )}
           {tab === 'feedback' && (

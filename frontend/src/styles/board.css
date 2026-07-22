@@ -492,12 +492,62 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.delivery-file-btn:hover {
+.delivery-file-btn:hover:not(:disabled) {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent-soft) 28%, white);
 }
+.delivery-file-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .delivery-submit {
   width: 100%;
+}
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.btn-spinner--dark {
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent-active);
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+.delivery-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.delivery-pending-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 55%, white);
+  color: var(--accent-active);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.delivery-pending-pill.is-saved {
+  background: color-mix(in srgb, #16a34a 12%, white);
+  color: #15803d;
+}
+.delivery-card.is-pending {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.activity.is-comment p strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .delivery-compose .text-btn {
   border: 0;

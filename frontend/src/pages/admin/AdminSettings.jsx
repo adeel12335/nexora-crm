@@ -349,7 +349,7 @@ export default function AdminSettings() {
                   checked={waForm.notifyCardUpdatesGroup}
                   onChange={(e) => setWaForm({ ...waForm, notifyCardUpdatesGroup: e.target.checked })}
                 />
-                Stage / priority / new draft push → WhatsApp group
+                Stage / comment / delivery / feedback / new draft → WhatsApp group
               </label>
               <p className="commission-note">
                 Deadline cron runs every 15 minutes (Asia/Karachi): alerts at 1 day left and 12 hours before due.

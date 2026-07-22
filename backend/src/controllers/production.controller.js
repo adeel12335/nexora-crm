@@ -688,6 +688,7 @@ export async function createCard(req, res) {
       dueDate: card.dueDate,
       relatedCardId: card.id,
       fileCount: Array.isArray(card.fileList) ? card.fileList.length : 0,
+      description: card.description || null,
     });
   })().catch((err) => {
     console.error('[production-create-notify]', err.message);
@@ -790,30 +791,29 @@ export async function updateCard(req, res) {
   const card = toCard(row, { role: req.user?.role || null });
 
   const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
-  const stageChanged = existing.stage !== next.stage;
-  const priorityChanged = prevPriority !== priorityKey;
-  if (stageChanged || priorityChanged) {
-    (async () => {
-      const [[assignee]] = await pool.query(
-        'SELECT whatsapp_number FROM users WHERE id = ?',
-        [safeAssigneeId],
-      );
-      await notifyProductionCardChange({
-        userId: card.assignee?.id,
-        whatsappNumber: assignee?.whatsapp_number || null,
-        cardTitle: card.title,
-        clientName: card.client,
-        assigneeName: card.assignee?.name,
-        relatedCardId: card.id,
-        prevStage: existing.stage,
-        nextStage: next.stage,
-        prevPriority,
-        nextPriority: priorityKey,
-      });
-    })().catch((err) => {
-      console.error('[production-update-notify]', err.message);
+  (async () => {
+    const [[assignee]] = await pool.query(
+      'SELECT whatsapp_number FROM users WHERE id = ?',
+      [safeAssigneeId],
+    );
+    await notifyProductionCardChange({
+      userId: card.assignee?.id,
+      whatsappNumber: assignee?.whatsapp_number || null,
+      cardTitle: card.title,
+      clientName: card.client,
+      assigneeName: card.assignee?.name,
+      actorName: req.user?.name || null,
+      relatedCardId: card.id,
+      prevStage: normalizeStage(existing.stage),
+      nextStage: next.stage,
+      prevPriority,
+      nextPriority: priorityKey,
+      prevExtras,
+      nextExtras: extras,
     });
-  }
+  })().catch((err) => {
+    console.error('[production-update-notify]', err.message);
+  });
 
   res.json({ card });
 }

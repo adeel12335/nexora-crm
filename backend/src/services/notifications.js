@@ -242,15 +242,234 @@ const PRIORITY_LABELS = {
 };
 
 function stageLabel(stage) {
-  return STAGE_LABELS[stage] || String(stage || '').replaceAll('_', ' ');
+  const key = String(stage || '').trim();
+  if (!key) return 'Unknown';
+  return STAGE_LABELS[key] || key.replaceAll('_', ' ');
 }
 
 function priorityLabel(priority) {
   return PRIORITY_LABELS[priority] || String(priority || 'None');
 }
 
+const LEGACY_STAGE_MAP = {
+  new_draft: 'new_project_create_draft',
+  in_progress: 'page_expansion',
+  revision: 'draft_revisions',
+  review: 'pending_approval',
+  live: 'page_live',
+  done: 'stopped_process',
+};
+
+function normalizeStageKey(stage) {
+  const key = String(stage || '').trim();
+  return LEGACY_STAGE_MAP[key] || key;
+}
+
+function feedbackStatusLabel(status) {
+  const map = {
+    none: 'None',
+    pending: 'Pending',
+    approved: 'Approved',
+    changes_requested: 'Changes requested',
+  };
+  return map[status] || String(status || 'None').replaceAll('_', ' ');
+}
+
+function clipText(value, max = 400) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
+}
+
+function cardHeaderLines({ cardTitle, clientName, assigneeName, actorName }) {
+  const lines = [`"${cardTitle}" for ${clientName}`];
+  if (assigneeName) lines.push(`Assignee: ${assigneeName}`);
+  if (actorName) lines.push(`By: ${actorName}`);
+  return lines;
+}
+
 /**
- * Stage / priority change → assignee (DM + in-app) + optional WhatsApp group.
+ * Diff card update into concrete activity events with dynamic message bodies.
+ */
+export function buildProductionCardEvents({
+  cardTitle,
+  clientName,
+  assigneeName = null,
+  actorName = null,
+  prevStage,
+  nextStage,
+  prevPriority,
+  nextPriority,
+  prevExtras = {},
+  nextExtras = {},
+}) {
+  const events = [];
+  const base = { cardTitle, clientName, assigneeName, actorName };
+
+  const prevStageKey = normalizeStageKey(prevStage);
+  const nextStageKey = normalizeStageKey(nextStage);
+  // Ignore empty/unknown → stage noise (was producing "Stage:  → …" on every save).
+  const stageChanged = Boolean(prevStageKey && nextStageKey && prevStageKey !== nextStageKey);
+  const priorityChanged = String(prevPriority || 'none') !== String(nextPriority || 'none');
+
+  const prevComments = Array.isArray(prevExtras.commentList) ? prevExtras.commentList : [];
+  const nextComments = Array.isArray(nextExtras.commentList) ? nextExtras.commentList : [];
+  const prevCommentIds = new Set(prevComments.map((c) => String(c.id)));
+  const addedComments = nextComments.filter((c) => !prevCommentIds.has(String(c.id)));
+  for (const comment of addedComments) {
+    const text = clipText(comment.text || comment.body || '');
+    if (!text) continue;
+    const lines = cardHeaderLines(base);
+    lines.push('', 'Comment:', text);
+    events.push({
+      title: 'New comment',
+      body: lines.join('\n'),
+      tone: 'blue',
+      icon: 'i-message',
+    });
+  }
+
+  const prevFiles = Array.isArray(prevExtras.fileList) ? prevExtras.fileList : [];
+  const nextFiles = Array.isArray(nextExtras.fileList) ? nextExtras.fileList : [];
+  const prevFileIds = new Set(prevFiles.map((f) => String(f.id)));
+  const addedFiles = nextFiles.filter((f) => !prevFileIds.has(String(f.id)));
+  if (addedFiles.length) {
+    const lines = cardHeaderLines(base);
+    lines.push(`Files added (${addedFiles.length}):`);
+    for (const file of addedFiles.slice(0, 5)) {
+      lines.push(`• ${file.name || 'file'}`);
+    }
+    if (addedFiles.length > 5) lines.push(`• +${addedFiles.length - 5} more`);
+    events.push({
+      title: addedFiles.length === 1 ? 'File uploaded' : 'Files uploaded',
+      body: lines.join('\n'),
+      tone: 'blue',
+      icon: 'i-paperclip',
+    });
+  }
+
+  const prevDeliveries = Array.isArray(prevExtras.deliveryList) ? prevExtras.deliveryList : [];
+  const nextDeliveries = Array.isArray(nextExtras.deliveryList) ? nextExtras.deliveryList : [];
+  const prevDeliveryById = new Map(prevDeliveries.map((d) => [String(d.id), d]));
+  const nextDeliveryById = new Map(nextDeliveries.map((d) => [String(d.id), d]));
+
+  for (const delivery of nextDeliveries) {
+    const id = String(delivery.id);
+    if (prevDeliveryById.has(id)) continue;
+    const lines = cardHeaderLines(base);
+    const description = clipText(delivery.description || '');
+    if (description) {
+      lines.push('', 'Description:', description);
+    }
+    if (delivery.url) lines.push(`Link: ${delivery.url}`);
+    if (delivery.name) lines.push(`File: ${delivery.name}`);
+    if (!description && !delivery.url && !delivery.name) {
+      lines.push('', 'A delivery was added.');
+    }
+    events.push({
+      title: 'Delivery added',
+      body: lines.join('\n'),
+      tone: 'green',
+      icon: 'i-link',
+    });
+  }
+
+  for (const delivery of prevDeliveries) {
+    const id = String(delivery.id);
+    if (nextDeliveryById.has(id)) continue;
+    const lines = cardHeaderLines(base);
+    const description = clipText(delivery.description || delivery.name || 'Delivery');
+    lines.push(`Removed: ${description}`);
+    events.push({
+      title: 'Delivery removed',
+      body: lines.join('\n'),
+      tone: 'orange',
+      icon: 'i-link',
+    });
+  }
+
+  for (const delivery of nextDeliveries) {
+    const prev = prevDeliveryById.get(String(delivery.id));
+    if (!prev) continue;
+    const prevFb = prev.feedback || {};
+    const nextFb = delivery.feedback || {};
+    const statusChanged = String(prevFb.status || 'none') !== String(nextFb.status || 'none');
+    const noteChanged = String(prevFb.note || '').trim() !== String(nextFb.note || '').trim();
+    if (!statusChanged && !noteChanged) continue;
+    if (String(nextFb.status || 'none') === 'none' && !String(nextFb.note || '').trim()) continue;
+
+    const lines = cardHeaderLines(base);
+    const deliveryLabel = clipText(delivery.description || delivery.name || 'Delivery', 160);
+    lines.push(`Delivery: ${deliveryLabel}`);
+    lines.push(`Status: ${feedbackStatusLabel(nextFb.status)}`);
+    const note = clipText(nextFb.note || '');
+    if (note) {
+      lines.push('', 'Feedback:', note);
+    }
+    events.push({
+      title: 'Delivery feedback',
+      body: lines.join('\n'),
+      tone: nextFb.status === 'approved' ? 'green' : nextFb.status === 'changes_requested' ? 'orange' : 'blue',
+      icon: 'i-star',
+    });
+  }
+
+  const prevFb = prevExtras.feedback || {};
+  const nextFb = nextExtras.feedback || {};
+  const cardFbStatusChanged = String(prevFb.status || 'none') !== String(nextFb.status || 'none');
+  const cardFbNoteChanged = String(prevFb.note || '').trim() !== String(nextFb.note || '').trim();
+  const cardFbRatingChanged = String(prevFb.rating ?? '') !== String(nextFb.rating ?? '');
+  if (cardFbStatusChanged || cardFbNoteChanged || cardFbRatingChanged) {
+    if (!(String(nextFb.status || 'none') === 'none' && !String(nextFb.note || '').trim() && (nextFb.rating == null || nextFb.rating === ''))) {
+      const lines = cardHeaderLines(base);
+      lines.push(`Status: ${feedbackStatusLabel(nextFb.status)}`);
+      if (nextFb.rating != null && nextFb.rating !== '') {
+        lines.push(`Rating: ${nextFb.rating}/5`);
+      }
+      const note = clipText(nextFb.note || '');
+      if (note) {
+        lines.push('', 'Note:', note);
+      }
+      events.push({
+        title: 'Client feedback updated',
+        body: lines.join('\n'),
+        tone: nextFb.status === 'approved' ? 'green' : nextFb.status === 'changes_requested' ? 'orange' : 'blue',
+        icon: 'i-star',
+      });
+    }
+  }
+
+  // Real stage/priority moves only — never spam this on comment/delivery saves.
+  if (stageChanged || priorityChanged) {
+    const lines = cardHeaderLines(base);
+    if (stageChanged) {
+      lines.push(`Stage: ${stageLabel(prevStageKey)} → ${stageLabel(nextStageKey)}`);
+    }
+    if (priorityChanged) {
+      lines.push(`Priority: ${priorityLabel(prevPriority)} → ${priorityLabel(nextPriority)}`);
+    }
+    if (!stageChanged && nextStageKey) lines.push(`Stage: ${stageLabel(nextStageKey)}`);
+    if (!priorityChanged && nextPriority && nextPriority !== 'none') {
+      lines.push(`Priority: ${priorityLabel(nextPriority)}`);
+    }
+    let title = 'Card updated';
+    if (stageChanged && !priorityChanged) title = 'Stage updated';
+    if (priorityChanged && !stageChanged) title = 'Priority updated';
+    events.push({
+      title,
+      body: lines.join('\n'),
+      tone: priorityChanged && nextPriority === 'high' ? 'red' : 'blue',
+      icon: 'i-production',
+    });
+  }
+
+  return events;
+}
+
+/**
+ * Stage / priority / comment / delivery / feedback → assignee DM + optional group.
+ * Sends one WhatsApp/app notification per concrete activity (dynamic body).
  */
 export async function notifyProductionCardChange({
   userId,
@@ -258,56 +477,64 @@ export async function notifyProductionCardChange({
   cardTitle,
   clientName,
   assigneeName,
+  actorName = null,
   relatedCardId = null,
   prevStage,
   nextStage,
   prevPriority,
   nextPriority,
+  prevExtras = {},
+  nextExtras = {},
+  events: providedEvents = null,
 }) {
-  const stageChanged = prevStage !== nextStage;
-  const priorityChanged = prevPriority !== nextPriority;
-  if (!stageChanged && !priorityChanged) {
-    return { skipped: true, reason: 'no_stage_or_priority_change' };
+  const events = Array.isArray(providedEvents)
+    ? providedEvents
+    : buildProductionCardEvents({
+        cardTitle,
+        clientName,
+        assigneeName,
+        actorName,
+        prevStage,
+        nextStage,
+        prevPriority,
+        nextPriority,
+        prevExtras,
+        nextExtras,
+      });
+
+  if (!events.length) {
+    return { skipped: true, reason: 'no_notifiable_changes' };
   }
 
-  const lines = [`"${cardTitle}" for ${clientName}`];
-  if (stageChanged) {
-    lines.push(`Stage: ${stageLabel(prevStage)} → ${stageLabel(nextStage)}`);
-  }
-  if (priorityChanged) {
-    lines.push(`Priority: ${priorityLabel(prevPriority)} → ${priorityLabel(nextPriority)}`);
-  }
-  if (!stageChanged) lines.push(`Stage: ${stageLabel(nextStage)}`);
-  if (!priorityChanged && nextPriority && nextPriority !== 'none') {
-    lines.push(`Priority: ${priorityLabel(nextPriority)}`);
-  }
-  if (assigneeName) lines.push(`Assignee: ${assigneeName}`);
-
-  let title = 'Card updated';
-  if (stageChanged && !priorityChanged) title = 'Stage updated';
-  if (priorityChanged && !stageChanged) title = 'Priority updated';
-
-  const body = lines.join('\n');
   const settings = await getWhatsAppPortalSettings();
+  const results = [];
 
-  const personal = await notifyUser({
-    userId,
-    whatsappNumber,
-    type: 'system',
-    tone: priorityChanged && nextPriority === 'high' ? 'red' : 'blue',
-    icon: 'i-production',
-    title,
-    body,
-    relatedCardId,
-    sendWhatsApp: true,
-  });
+  for (const event of events) {
+    const personal = await notifyUser({
+      userId,
+      whatsappNumber,
+      type: 'system',
+      tone: event.tone || 'blue',
+      icon: event.icon || 'i-production',
+      title: event.title,
+      body: event.body,
+      relatedCardId,
+      sendWhatsApp: true,
+    });
 
-  let group = null;
-  if (settings.notifyCardUpdatesGroup) {
-    group = await notifyGroup({ title, body, type: 'system', tone: 'blue' });
+    let group = null;
+    if (settings.notifyCardUpdatesGroup) {
+      group = await notifyGroup({
+        title: event.title,
+        body: event.body,
+        type: 'system',
+        tone: event.tone || 'blue',
+      });
+    }
+    results.push({ ...personal, group, title: event.title });
   }
 
-  return { ...personal, group };
+  return { ok: true, count: results.length, results };
 }
 
 /**
@@ -325,6 +552,7 @@ export async function notifyProductionCardCreated({
   dueDate = null,
   relatedCardId = null,
   fileCount = 0,
+  description = null,
 }) {
   const title = type === 'revision' ? 'Revision pushed to production' : 'Draft pushed to production';
   const lines = [
@@ -344,6 +572,10 @@ export async function notifyProductionCardCreated({
   }
   if (fileCount > 0) {
     lines.push(`Attachments: ${fileCount}`);
+  }
+  const desc = clipText(description, 300);
+  if (desc) {
+    lines.push('', 'Description:', desc);
   }
 
   const body = lines.join('\n');
