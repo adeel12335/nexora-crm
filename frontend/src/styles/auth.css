@@ -12,4 +12,17 @@
 .auth-submit { width:100%; height:48px; margin-top:2px; border:0; border-radius:11px; color:#fff; font-size:14px; font-weight:700; cursor:pointer; background:linear-gradient(145deg,var(--accent),var(--accent-2)); box-shadow:var(--shadow-accent); transition:.2s var(--ease); }
 .auth-submit:hover { transform:translateY(-1px); background:linear-gradient(145deg,var(--accent-2),var(--accent-active)); }
 .auth-submit:disabled { opacity:.6; cursor:not-allowed; transform:none; }
+
+.password-field { position:relative; display:block; width:100%; }
+.password-field input { width:100%; padding-right:44px !important; box-sizing:border-box; }
+.password-toggle {
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  display:grid; place-items:center;
+  width:36px; height:36px; border:0; border-radius:8px;
+  background:transparent; color:var(--muted); cursor:pointer;
+  padding:0; line-height:0;
+}
+.password-toggle:hover { color:var(--text); background:var(--surface-3, rgba(0,0,0,.04)); }
+.password-toggle svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
 @media (max-width:520px){.auth-page{padding:20px 14px}.auth-card{padding:28px 22px}}

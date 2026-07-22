@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import PasswordInput from '../../components/PasswordInput.jsx';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -161,8 +162,7 @@ export default function ProfilePage() {
           <form className="settings-stack" onSubmit={savePassword}>
             <label>
               Current password
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="current-password"
                 value={passwordForm.currentPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
@@ -170,8 +170,7 @@ export default function ProfilePage() {
             </label>
             <label>
               New password
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 value={passwordForm.newPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
@@ -180,8 +179,7 @@ export default function ProfilePage() {
             </label>
             <label>
               Confirm new password
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="new-password"
                 value={passwordForm.confirmPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
