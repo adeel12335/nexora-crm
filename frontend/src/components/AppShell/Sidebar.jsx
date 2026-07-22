@@ -11,7 +11,7 @@ export default function Sidebar({ role, user, onLogout, open, mobile, onNavigate
         <Icon id="i-close" />
       </button>
       <Link to={role.basePath} className="brand">
-        <img src="/assets/logo.svg" alt="The Wiki Studio logo" />
+        <img src="/assets/logo.webp" alt="The Wiki Studio logo" />
         <div><span>{role.label.toUpperCase()} PORTAL</span></div>
       </Link>
 

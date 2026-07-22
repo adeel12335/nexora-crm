@@ -46,7 +46,7 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <img src="/assets/logo.svg" alt="The Wiki Studio logo" />
+          <img src="/assets/logo.webp" alt="The Wiki Studio logo" />
         </div>
         <h1>Sign in to The Wiki Studio</h1>
         <p>Attendance, production &amp; team portal</p>

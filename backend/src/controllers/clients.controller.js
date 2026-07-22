@@ -26,7 +26,17 @@ function paymentMethodLabel(value) {
   return PAYMENT_METHODS.find((m) => m.value === value)?.label || null;
 }
 
-function toClient(row) {
+function toClient(row, { role = null } = {}) {
+  // Production portal: client identity only — no agent, no money, no notes.
+  if (role === 'production') {
+    return {
+      id: row.id,
+      name: row.name,
+      isActive: Boolean(row.is_active),
+      productionStatus: row.production_status || 'pending',
+    };
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -231,11 +241,26 @@ export async function listClients(req, res) {
   }
 
   const [rows] = await pool.query(sql, params);
+  const role = req.user?.role || null;
+
+  if (role === 'production') {
+    return res.json({
+      clients: rows.map((row) => toClient(row, { role })),
+      summary: { total },
+      pagination: {
+        page: safePage,
+        pageSize: pageSize || total,
+        total,
+        totalPages,
+      },
+    });
+  }
+
   const totalDeal = money(totals.total_deal);
   const totalPaid = money(totals.total_paid);
 
   res.json({
-    clients: rows.map(toClient),
+    clients: rows.map((row) => toClient(row, { role })),
     summary: {
       total,
       totalDeal,
@@ -257,6 +282,15 @@ export async function getClient(req, res) {
   if (!row) return res.status(404).json({ error: 'Client not found' });
   await assertClientAccess(req, row);
 
+  const role = req.user?.role || null;
+  if (role === 'production') {
+    return res.json({
+      client: toClient(row, { role }),
+      payments: [],
+      commissions: [],
+    });
+  }
+
   const [payments] = await pool.query(
     `SELECT p.*, c.name AS client_name
      FROM client_payments p
@@ -276,7 +310,7 @@ export async function getClient(req, res) {
   );
 
   res.json({
-    client: toClient(row),
+    client: toClient(row, { role }),
     payments: payments.map(toPayment),
     commissions: commissions.map((ce) => ({
       id: ce.id,

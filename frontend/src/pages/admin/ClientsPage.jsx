@@ -562,7 +562,7 @@ export default function ClientsPage() {
         })));
       }
 
-      const paymentNote = `Client payments: Deal ${money(pushTarget.dealAmount)} · Received ${money(pushTarget.totalPaid)} · Remaining ${money(pushTarget.balance)}`;
+      const paymentNote = 'Pushed from CRM Clients';
       const description = String(pushForm.description || '').trim()
         ? `${String(pushForm.description).trim()}\n\n${paymentNote}`
         : paymentNote;

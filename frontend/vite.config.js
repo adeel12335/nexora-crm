@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['assets/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
+      includeAssets: ['assets/logo.webp', 'assets/logo.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
         name: 'The Wiki Studio CRM',
         short_name: 'Wiki Studio',

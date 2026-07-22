@@ -44,7 +44,23 @@ function parseExtras(raw) {
   }
 }
 
-function toCard(row, { light = false } = {}) {
+/** Strip payment / deal lines so production never sees money in card text. */
+function sanitizeDescriptionForProduction(description) {
+  return String(description || '')
+    .split(/\r?\n/)
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return true;
+      if (/^client payments\b/i.test(t)) return false;
+      if (/\b(deal|received|remaining|balance)\b/i.test(t) && /\$|usd|\d/i.test(t)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function toCard(row, { light = false, role = null } = {}) {
   const extras = parseExtras(row.extras_json);
   const assigneeId = row.assignee_id;
   const rawFiles = extras.fileList || [];
@@ -60,13 +76,16 @@ function toCard(row, { light = false } = {}) {
       }))
     : rawFiles;
 
-  return {
+  const isProduction = role === 'production';
+  const description = isProduction
+    ? sanitizeDescriptionForProduction(row.description)
+    : (row.description || '');
+
+  const card = {
     id: row.id,
     title: row.title,
     client: row.client,
     clientId: row.client_id ?? null,
-    clientAgentId: row.client_agent_id ?? null,
-    clientAgentName: row.client_agent_name ?? null,
     type: row.type,
     stage: row.stage,
     assignee: {
@@ -76,7 +95,7 @@ function toCard(row, { light = false } = {}) {
       avatar: pickAvatar(assigneeId),
     },
     priority: row.priority_key || 'none',
-    description: row.description || '',
+    description,
     liveUrl: row.live_url || '',
     createdAt: row.created_at,
     dueDate: row.due_date,
@@ -92,6 +111,14 @@ function toCard(row, { light = false } = {}) {
       author: null,
     },
   };
+
+  // Agent ownership is admin/CRM-only — never expose to production.
+  if (!isProduction) {
+    card.clientAgentId = row.client_agent_id ?? null;
+    card.clientAgentName = row.client_agent_name ?? null;
+  }
+
+  return card;
 }
 
 const CARD_SELECT = `
@@ -258,7 +285,8 @@ export async function listCards(req, res) {
     `${CARD_SELECT} ${where} ORDER BY pc.due_date ASC, pc.id DESC`,
     params,
   );
-  res.json({ cards: rows.map((row) => toCard(row, { light: true })) });
+  const role = req.user?.role || null;
+  res.json({ cards: rows.map((row) => toCard(row, { light: true, role })) });
 }
 
 /** GET /api/production/cards/:id — full card including file data URLs */
@@ -269,7 +297,7 @@ export async function getCard(req, res) {
   }
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
   if (!row) return res.status(404).json({ error: 'Card not found' });
-  res.json({ card: toCard(row, { light: false }) });
+  res.json({ card: toCard(row, { light: false, role: req.user?.role || null }) });
 }
 
 /**
@@ -385,7 +413,7 @@ export async function createCard(req, res) {
   await syncClientProductionStatus(resolved.id);
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [result.insertId]);
-  const card = toCard(row);
+  const card = toCard(row, { role: req.user?.role || null });
 
   (async () => {
     const [[assignee]] = await pool.query(
@@ -495,7 +523,7 @@ export async function updateCard(req, res) {
   }
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
-  const card = toCard(row);
+  const card = toCard(row, { role: req.user?.role || null });
 
   const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
   const stageChanged = existing.stage !== next.stage;
