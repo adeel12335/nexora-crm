@@ -367,6 +367,7 @@
 
 .detail-form { display: grid; gap: 12px; }
 .detail-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.detail-form .field-hint { font-weight: 500; color: var(--faint, var(--muted)); }
 .detail-form input,
 .detail-form select,
 .detail-form textarea,
@@ -427,23 +428,89 @@
 .file-actions { display: flex; align-items: center; gap: 4px; }
 .file-actions .tool-btn { min-height: 36px; padding: 0 10px; font-size: 12px; }
 
-.delivery-compose {
+.delivery-section {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 14px;
+}
+.delivery-compose {
+  gap: 14px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
-  margin-bottom: 12px;
 }
-.delivery-compose h3 {
+.delivery-compose-head {
+  display: grid;
+  gap: 4px;
+}
+.delivery-compose-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.delivery-compose-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 500;
+}
+.delivery-file-field {
+  display: grid;
+  gap: 6px;
+}
+.delivery-file-label {
+  color: var(--muted);
+  font-size: 12px;
   font-weight: 700;
 }
-.delivery-compose .form-row {
-  display: grid;
+.delivery-file-btn {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: 14px/1.4 inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.delivery-file-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.delivery-file-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delivery-file-btn:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 28%, white);
+}
+.delivery-submit {
+  width: 100%;
+}
+.delivery-compose .text-btn {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent-active);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.delivery-empty {
+  margin: 0;
 }
 .delivery-list {
   list-style: none;

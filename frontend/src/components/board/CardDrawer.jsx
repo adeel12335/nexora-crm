@@ -570,50 +570,73 @@ export default function CardDrawer({
           )}
 
           {tab === 'delivery' && (
-            <section className="detail-section">
-              <p className="detail-hint">
-                Describe the handoff and/or add a link or file (max {MAX_DELIVERIES_PER_CARD}).
-              </p>
+            <section className="detail-section delivery-section">
+              <form className="detail-form delivery-compose" id="delivery-add-form" onSubmit={handleDeliverySubmit} noValidate>
+                <div className="delivery-compose-head">
+                  <h3>Add delivery</h3>
+                  <p>Optional description, link, or file — max {MAX_DELIVERIES_PER_CARD}.</p>
+                </div>
 
-              <form className="delivery-compose" id="delivery-add-form" onSubmit={handleDeliverySubmit} noValidate>
-                <h3>Add delivery</h3>
                 <label>
                   Description <span className="field-hint">(optional)</span>
                   <textarea
                     value={deliveryDescription}
                     onChange={(e) => setDeliveryDescription(e.target.value)}
-                    placeholder="What was delivered? e.g. Homepage draft v2 ready for review"
+                    placeholder="What was delivered?"
                     maxLength={1000}
                     rows={3}
                   />
                 </label>
-                <div className="form-row">
-                  <label>
-                    Link <span className="field-hint">(optional)</span>
-                    <input
-                      type="url"
-                      value={deliveryUrl}
-                      onChange={(e) => setDeliveryUrl(e.target.value)}
-                      placeholder="https://drive.google.com/…"
-                      maxLength={500}
-                    />
-                  </label>
-                  <label>
-                    File <span className="field-hint">(optional)</span>
-                    <input
-                      ref={deliveryFileInputRef}
-                      type="file"
-                      onChange={handleDeliveryFilePick}
-                      accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
-                    />
-                  </label>
+
+                <label>
+                  Link <span className="field-hint">(optional)</span>
+                  <input
+                    type="url"
+                    value={deliveryUrl}
+                    onChange={(e) => setDeliveryUrl(e.target.value)}
+                    placeholder="https://drive.google.com/…"
+                    maxLength={500}
+                  />
+                </label>
+
+                <div className="delivery-file-field">
+                  <span className="delivery-file-label">File <span className="field-hint">(optional)</span></span>
+                  <button
+                    type="button"
+                    className="delivery-file-btn"
+                    onClick={() => deliveryFileInputRef.current?.click()}
+                  >
+                    <Icon id="i-paperclip" />
+                    <span>{deliveryFile ? deliveryFile.name : 'Choose file'}</span>
+                  </button>
+                  <input
+                    ref={deliveryFileInputRef}
+                    type="file"
+                    hidden
+                    onChange={handleDeliveryFilePick}
+                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+                  />
+                  {deliveryFile ? (
+                    <p className="muted-hint">
+                      {formatFileSize(deliveryFile.size || 0)}
+                      {' · '}
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => {
+                          setDeliveryFile(null);
+                          if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </p>
+                  ) : null}
                 </div>
-                {deliveryFile ? (
-                  <p className="muted-hint">Selected: {deliveryFile.name} · {formatFileSize(deliveryFile.size || 0)}</p>
-                ) : null}
+
                 <button
                   type="submit"
-                  className="primary-btn"
+                  className="primary-btn delivery-submit"
                   disabled={
                     deliveries.length >= MAX_DELIVERIES_PER_CARD
                     || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
@@ -672,7 +695,7 @@ export default function CardDrawer({
                         </div>
 
                         {canReviewDelivery ? (
-                          <div className="delivery-feedback">
+                          <div className="delivery-feedback detail-form">
                             <label>
                               Admin feedback
                               <FancySelect
@@ -724,7 +747,7 @@ export default function CardDrawer({
                   })}
                 </ul>
               ) : (
-                <div className="empty-state">No deliveries yet</div>
+                <div className="empty-state delivery-empty">No deliveries yet</div>
               )}
             </section>
           )}
