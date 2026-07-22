@@ -3,7 +3,7 @@
 A role-based CRM/attendance/production portal — React frontend, Node.js +
 MySQL backend (Phase 2).
 
-## Structure
+## Structure 
 
 - [`frontend/`](frontend) — React (Vite) app. **This is the active app.**
   Role-based routing for Admin, Manager, Agent and Production, an attendance
