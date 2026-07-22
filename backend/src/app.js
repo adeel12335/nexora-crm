@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { pingDb } from './config/db.js';
+import { healthCheck } from './controllers/health.controller.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { commissionsRoutes } from './routes/commissions.routes.js';
@@ -17,14 +17,9 @@ export const app = express();
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
-app.get('/api/health', async (req, res) => {
-  try {
-    await pingDb();
-    res.json({ ok: true, db: 'connected' });
-  } catch (err) {
-    res.status(500).json({ ok: false, db: 'disconnected', error: err.message });
-  }
-});
+/** Load-balancer / uptime probe (no auth). */
+app.get('/health', healthCheck);
+app.get('/api/health', healthCheck);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
