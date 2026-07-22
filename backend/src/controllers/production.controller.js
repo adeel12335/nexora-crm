@@ -34,6 +34,7 @@ const LIVE_LINK_STAGES = new Set(['page_live', 'pages_to_relive']);
 
 function normalizeStage(stage) {
   const key = String(stage || '').trim();
+  if (!key) return 'new_project_create_draft';
   if (LEGACY_STAGE_MAP[key]) return LEGACY_STAGE_MAP[key];
   return key;
 }

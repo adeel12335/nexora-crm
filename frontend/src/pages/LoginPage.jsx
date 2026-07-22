@@ -2,14 +2,6 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
-const DEMO_ACCOUNTS = [
-  { role: 'Admin', email: 'admin@lead.com' },
-  { role: 'Manager', email: 'haseeb@gmail.com' },
-  { role: 'Agent', email: 'nafay@gmail.com' },
-  { role: 'Production', email: 'neha@gmail.com' },
-];
-const DEMO_PASSWORD = 'password123';
-
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -19,14 +11,12 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e, overrides) {
-    e?.preventDefault();
-    const useEmail = overrides?.email ?? email;
-    const usePassword = overrides?.password ?? password;
+  async function handleSubmit(e) {
+    e.preventDefault();
     setError('');
     setSubmitting(true);
     try {
-      const user = await login(useEmail, usePassword);
+      const user = await login(email, password);
       const redirectTo = location.state?.from || `/${user.role}`;
       navigate(redirectTo, { replace: true });
     } catch (err) {
@@ -34,12 +24,6 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function fillDemo(account) {
-    setEmail(account.email);
-    setPassword(DEMO_PASSWORD);
-    handleSubmit(null, { email: account.email, password: DEMO_PASSWORD });
   }
 
   return (
@@ -79,24 +63,6 @@ export default function LoginPage() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <div className="auth-demo">
-          <p>Quick demo login</p>
-          <div className="auth-demo-grid">
-            {DEMO_ACCOUNTS.map((account) => (
-              <button
-                key={account.email}
-                type="button"
-                className="auth-demo-row"
-                onClick={() => fillDemo(account)}
-                disabled={submitting}
-              >
-                <strong>{account.role}</strong>
-                <span>{account.email}</span>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

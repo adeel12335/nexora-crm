@@ -26,6 +26,9 @@ import { PAYMENT_METHODS, paymentMethodLabel } from '../../utils/paymentMethods.
 import {
   CLIENT_PAYMENT_STATUSES,
   CLIENT_ORDER_STATUSES,
+  clientPaymentStatusLabel,
+  clientOrderStatusLabel,
+  clientStatusTone,
 } from '../../utils/clientAdminStatuses.js';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
@@ -154,6 +157,7 @@ export default function ClientsPage() {
     paymentMethod: 'stripe',
   });
   const [invoiceReady, setInvoiceReady] = useState(null);
+  const [rowMenuId, setRowMenuId] = useState(null);
 
   async function refreshDetail() {
     if (!selectedId) return;
@@ -234,6 +238,23 @@ export default function ClientsPage() {
   useEffect(() => {
     setPage(1);
   }, [search, agentFilter, paymentStatusFilter, orderStatusFilter, productionStatusFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (!rowMenuId) return undefined;
+    function onDocPointerDown(e) {
+      if (e.target.closest?.(`[data-row-menu="${rowMenuId}"]`)) return;
+      setRowMenuId(null);
+    }
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setRowMenuId(null);
+    }
+    document.addEventListener('pointerdown', onDocPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [rowMenuId]);
 
   useEffect(() => {
     if (!token || !selectedId) {
@@ -517,9 +538,16 @@ export default function ClientsPage() {
 
   function openPushToProduction(client, e) {
     e?.stopPropagation();
+    setRowMenuId(null);
     setPushTarget(client);
     setPushForm(blankPushForm(client, assignees));
     setPushFiles([]);
+  }
+
+  function openClientDetail(client, e) {
+    e?.stopPropagation();
+    setRowMenuId(null);
+    setSelectedId(client.id);
   }
 
   function updatePushForm(field, value) {
@@ -751,65 +779,95 @@ export default function ClientsPage() {
                       <td data-label="Balance">{money(c.balance)}</td>
                       {isAdmin ? (
                         <td data-label="Payment" onClick={(e) => e.stopPropagation()}>
-                          <FancySelect
-                            value={c.paymentStatus || ''}
-                            onChange={(paymentStatus) => updateAdminStatuses(c.id, {
-                              paymentStatus: paymentStatus || null,
-                            })}
-                            options={CLIENT_PAYMENT_STATUSES}
-                            placeholder="Set status"
-                            aria-label="Payment status"
-                            isClearable
-                            className="clients-status-select"
-                          />
+                          <label className={`client-status-chip tone-${clientStatusTone('payment', c.paymentStatus)}`}>
+                            <span>{c.paymentStatus ? clientPaymentStatusLabel(c.paymentStatus) : 'Set status'}</span>
+                            <select
+                              aria-label="Payment status"
+                              value={c.paymentStatus || ''}
+                              onChange={(e) => updateAdminStatuses(c.id, {
+                                paymentStatus: e.target.value || null,
+                              })}
+                            >
+                              <option value="">Set status</option>
+                              {CLIENT_PAYMENT_STATUSES.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </label>
                         </td>
                       ) : null}
                       {isAdmin ? (
                         <td data-label="Order" onClick={(e) => e.stopPropagation()}>
-                          <FancySelect
-                            value={c.orderStatus || ''}
-                            onChange={(orderStatus) => updateAdminStatuses(c.id, {
-                              orderStatus: orderStatus || null,
-                            })}
-                            options={CLIENT_ORDER_STATUSES}
-                            placeholder="Set status"
-                            aria-label="Order status"
-                            isClearable
-                            className="clients-status-select"
-                          />
+                          <label className={`client-status-chip tone-${clientStatusTone('order', c.orderStatus)}`}>
+                            <span>{c.orderStatus ? clientOrderStatusLabel(c.orderStatus) : 'Set status'}</span>
+                            <select
+                              aria-label="Order status"
+                              value={c.orderStatus || ''}
+                              onChange={(e) => updateAdminStatuses(c.id, {
+                                orderStatus: e.target.value || null,
+                              })}
+                            >
+                              <option value="">Set status</option>
+                              {CLIENT_ORDER_STATUSES.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </label>
                         </td>
                       ) : null}
-                      <td data-label="Production">
-                        <span
-                          className={`clients-push-status${c.productionStatus === 'done' ? ' is-done' : ''}${c.productionStatus === 'pending' || !c.productionStatus ? ' is-pending' : ''}`}
-                        >
-                          {productionStatusLabel(c.productionStatus)}
-                        </span>
+                      <td data-label="Production" onClick={(e) => e.stopPropagation()}>
+                        {isPushedToProduction(c) ? (
+                          <span className={`client-status-chip tone-${clientStatusTone('production', c.productionStatus)}`}>
+                            {productionStatusLabel(c.productionStatus)}
+                          </span>
+                        ) : isAdmin ? (
+                          <button
+                            type="button"
+                            className="tool-btn clients-push-btn"
+                            disabled={busy}
+                            title="Push to Production Board"
+                            onClick={(e) => openPushToProduction(c, e)}
+                          >
+                            Push to production
+                          </button>
+                        ) : (
+                          <span className="client-status-chip tone-none">
+                            {productionStatusLabel(c.productionStatus)}
+                          </span>
+                        )}
                       </td>
                       {isAdmin ? (
                         <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
-                          <div className="row-actions clients-row-actions">
-                            {isPushedToProduction(c) ? (
-                              <button
-                                type="button"
-                                className="tool-btn clients-push-btn"
-                                disabled={busy}
-                                title="Push again to Production Board"
-                                onClick={(e) => openPushToProduction(c, e)}
-                              >
-                                Push again
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="tool-btn clients-push-btn"
-                                disabled={busy}
-                                title="Push to Production Board"
-                                onClick={(e) => openPushToProduction(c, e)}
-                              >
-                                Push
-                              </button>
-                            )}
+                          <div className="clients-row-menu" data-row-menu={c.id}>
+                            <button
+                              type="button"
+                              className="clients-row-menu-trigger"
+                              aria-label="Client actions"
+                              aria-haspopup="menu"
+                              aria-expanded={rowMenuId === c.id}
+                              onClick={() => setRowMenuId((id) => (id === c.id ? null : c.id))}
+                            >
+                              <Icon id="i-more" />
+                            </button>
+                            {rowMenuId === c.id ? (
+                              <div className="clients-row-menu-panel" role="menu">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={(e) => openClientDetail(c, e)}
+                                >
+                                  View detail
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={busy}
+                                  onClick={(e) => openPushToProduction(c, e)}
+                                >
+                                  {isPushedToProduction(c) ? 'Push again' : 'Push to production'}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         </td>
                       ) : null}
@@ -907,7 +965,7 @@ export default function ClientsPage() {
                   </label>
                   <label>
                     Production status
-                    <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}${detail.client.productionStatus === 'pending' || !detail.client.productionStatus ? ' is-pending' : ''}`}>
+                    <span className={`client-status-chip tone-${clientStatusTone('production', detail.client.productionStatus)}`}>
                       {productionStatusLabel(detail.client.productionStatus)}
                     </span>
                   </label>
@@ -916,7 +974,7 @@ export default function ClientsPage() {
                 <div className="client-admin-statuses">
                   <label>
                     Production status
-                    <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}${detail.client.productionStatus === 'pending' || !detail.client.productionStatus ? ' is-pending' : ''}`}>
+                    <span className={`client-status-chip tone-${clientStatusTone('production', detail.client.productionStatus)}`}>
                       {productionStatusLabel(detail.client.productionStatus)}
                     </span>
                   </label>

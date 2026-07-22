@@ -24,3 +24,28 @@ export function clientPaymentStatusLabel(value) {
 export function clientOrderStatusLabel(value) {
   return CLIENT_ORDER_STATUSES.find((s) => s.value === value)?.label || value || '—';
 }
+
+export function clientStatusTone(kind, value) {
+  if (!value) return 'none';
+  if (kind === 'payment') {
+    if (value === 'paid') return 'success';
+    if (value === 'partially_paid') return 'warn';
+    if (value === 'upfront') return 'info';
+    if (value === 'payment_after_draft') return 'slate';
+    if (value === 'declined') return 'danger';
+  }
+  if (kind === 'order') {
+    if (value === 'new') return 'info';
+    if (value === 'draft_in_progress') return 'warn';
+    if (value === 'draft_in_revision') return 'orange';
+    if (value === 'live_in_progress') return 'teal';
+    if (value === 'page_live') return 'success';
+    if (value === 'cancelled') return 'danger';
+  }
+  if (kind === 'production') {
+    if (value === 'done') return 'success';
+    if (value === 'in_production') return 'teal';
+    if (value === 'pending') return 'none';
+  }
+  return 'none';
+}
