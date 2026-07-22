@@ -19,7 +19,7 @@ import {
 } from '../../utils/boardValidation.js';
 
 const TABS = [
-  { id: 'details', label: 'Edit', icon: 'i-settings' },
+  { id: 'details', label: 'Status', icon: 'i-settings' },
   { id: 'files', label: 'Files', icon: 'i-paperclip' },
   { id: 'comments', label: 'Comments', icon: 'i-message' },
   { id: 'feedback', label: 'Feedback', icon: 'i-star' },
@@ -35,6 +35,7 @@ export default function CardDrawer({
   onAddComment,
   onUpdateCard,
   onDeleteCard,
+  canEditMeta = true,
   onUploadFiles,
   onRemoveFile,
   onSaveFeedback,
@@ -267,57 +268,71 @@ export default function CardDrawer({
         <div className="detail-body">
           {tab === 'details' && (
             <form className="detail-form" id="card-edit-form" onSubmit={handleSaveDetails} noValidate>
-              <p className="detail-hint">Edit fields below, then press <strong>Save changes</strong>.</p>
-              <label>
-                Title
-                <input
-                  value={edit.title}
-                  onChange={(e) => updateEdit('title', e.target.value)}
-                  maxLength={120}
-                />
-              </label>
-              <label>
-                Client {crmClients.length ? <span className="field-hint">(required)</span> : null}
-                {crmClients.length ? (
-                  <FancySelect
-                    fullWidth
-                    isClearable
-                    value={edit.clientId}
-                    onChange={(clientId) => {
-                      const selected = crmClients.find((c) => String(c.id) === String(clientId));
-                      setEdit((f) => ({
-                        ...f,
-                        clientId: clientId || '',
-                        client: selected?.name || '',
-                      }));
-                      setDirty(true);
-                    }}
-                    placeholder="Search and select a CRM client…"
-                    options={crmClients.map((c) => ({
-                      value: String(c.id),
-                      label: c.agentName ? `${c.name} · ${c.agentName}` : c.name,
-                    }))}
-                  />
-                ) : (
-                  <input
-                    value={edit.client}
-                    onChange={(e) => updateEdit('client', e.target.value)}
-                    maxLength={80}
-                  />
-                )}
-              </label>
-              {crmClients.length && !edit.clientId ? (
-                <p className="muted-hint">Select a client from the CRM list to save.</p>
-              ) : null}
-              <label>
-                Description
-                <textarea
-                  value={edit.description}
-                  onChange={(e) => updateEdit('description', e.target.value)}
-                  maxLength={2000}
-                  rows={4}
-                />
-              </label>
+              <p className="detail-hint">
+                {canEditMeta
+                  ? <>Edit fields below, then press <strong>Save changes</strong>.</>
+                  : <>Update stage / priority / live link, then press <strong>Save changes</strong>.</>}
+              </p>
+              {canEditMeta ? (
+                <>
+                  <label>
+                    Title
+                    <input
+                      value={edit.title}
+                      onChange={(e) => updateEdit('title', e.target.value)}
+                      maxLength={120}
+                    />
+                  </label>
+                  <label>
+                    Client {crmClients.length ? <span className="field-hint">(required)</span> : null}
+                    {crmClients.length ? (
+                      <FancySelect
+                        fullWidth
+                        isClearable
+                        value={edit.clientId}
+                        onChange={(clientId) => {
+                          const selected = crmClients.find((c) => String(c.id) === String(clientId));
+                          setEdit((f) => ({
+                            ...f,
+                            clientId: clientId || '',
+                            client: selected?.name || '',
+                          }));
+                          setDirty(true);
+                        }}
+                        placeholder="Search and select a CRM client…"
+                        options={crmClients.map((c) => ({
+                          value: String(c.id),
+                          label: c.agentName ? `${c.name} · ${c.agentName}` : c.name,
+                        }))}
+                      />
+                    ) : (
+                      <input
+                        value={edit.client}
+                        onChange={(e) => updateEdit('client', e.target.value)}
+                        maxLength={80}
+                      />
+                    )}
+                  </label>
+                  {crmClients.length && !edit.clientId ? (
+                    <p className="muted-hint">Select a client from the CRM list to save.</p>
+                  ) : null}
+                  <label>
+                    Description
+                    <textarea
+                      value={edit.description}
+                      onChange={(e) => updateEdit('description', e.target.value)}
+                      maxLength={2000}
+                      rows={4}
+                    />
+                  </label>
+                </>
+              ) : (
+                <div className="detail-readonly">
+                  <p><span>Title</span><strong>{card.title}</strong></p>
+                  <p><span>Client</span><strong>{card.client}</strong></p>
+                  {card.description ? <p><span>Description</span><strong>{card.description}</strong></p> : null}
+                </div>
+              )}
               <label>
                 Live link {card.stage === 'live' ? <span className="field-hint">(required)</span> : <span className="field-hint">(for Live / portfolio)</span>}
                 <input
@@ -328,18 +343,20 @@ export default function CardDrawer({
                 />
               </label>
               <div className="form-grid">
-                <label>
-                  Type
-                  <FancySelect
-                    fullWidth
-                    value={edit.type}
-                    onChange={(v) => updateEdit('type', v)}
-                    options={[
-                      { value: 'draft', label: 'Draft' },
-                      { value: 'revision', label: 'Revision' },
-                    ]}
-                  />
-                </label>
+                {canEditMeta ? (
+                  <label>
+                    Type
+                    <FancySelect
+                      fullWidth
+                      value={edit.type}
+                      onChange={(v) => updateEdit('type', v)}
+                      options={[
+                        { value: 'draft', label: 'Draft' },
+                        { value: 'revision', label: 'Revision' },
+                      ]}
+                    />
+                  </label>
+                ) : null}
                 <label>
                   Priority
                   <FancySelect
@@ -351,36 +368,50 @@ export default function CardDrawer({
                 </label>
               </div>
               <div className="form-grid">
-                <label>
-                  Assignee
-                  <FancySelect
-                    fullWidth
-                    value={edit.assigneeId}
-                    onChange={(v) => updateEdit('assigneeId', v)}
-                    placeholder="Search production user…"
-                    options={(() => {
-                      const people = assignees.length ? [...assignees] : [];
-                      if (card.assignee && !people.some((a) => Number(a.id) === Number(card.assignee.id))) {
-                        people.unshift(card.assignee);
-                      }
-                      return people.map((a) => ({
-                        value: String(a.id),
-                        label: a.name,
-                      }));
-                    })()}
-                  />
-                </label>
-                <label>
-                  Due date
-                  <DayFilter
-                    value={edit.dueDate}
-                    onChange={(dueDate) => updateEdit('dueDate', dueDate)}
-                    placeholder="Select due date"
-                    allowFuture
-                    clearable={false}
-                    className="month-filter--form"
-                  />
-                </label>
+                {canEditMeta ? (
+                  <label>
+                    Assignee
+                    <FancySelect
+                      fullWidth
+                      value={edit.assigneeId}
+                      onChange={(v) => updateEdit('assigneeId', v)}
+                      placeholder="Search production user…"
+                      options={(() => {
+                        const people = assignees.length ? [...assignees] : [];
+                        if (card.assignee && !people.some((a) => Number(a.id) === Number(card.assignee.id))) {
+                          people.unshift(card.assignee);
+                        }
+                        return people.map((a) => ({
+                          value: String(a.id),
+                          label: a.name,
+                        }));
+                      })()}
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    Assignee
+                    <input value={card.assignee?.name || ''} readOnly disabled />
+                  </label>
+                )}
+                {canEditMeta ? (
+                  <label>
+                    Due date
+                    <DayFilter
+                      value={edit.dueDate}
+                      onChange={(dueDate) => updateEdit('dueDate', dueDate)}
+                      placeholder="Select due date"
+                      allowFuture
+                      clearable={false}
+                      className="month-filter--form"
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    Due date
+                    <input value={edit.dueDate || '—'} readOnly disabled />
+                  </label>
+                )}
               </div>
               <label>
                 Move to stage
@@ -522,14 +553,16 @@ export default function CardDrawer({
         <footer className="detail-footer">
           {tab === 'details' && (
             <div className="detail-footer-actions">
-              <button
-                type="button"
-                className="secondary-btn detail-delete-btn"
-                onClick={() => setConfirmDeleteCard(true)}
-                disabled={deleting}
-              >
-                Delete card
-              </button>
+              {onDeleteCard ? (
+                <button
+                  type="button"
+                  className="secondary-btn detail-delete-btn"
+                  onClick={() => setConfirmDeleteCard(true)}
+                  disabled={deleting}
+                >
+                  Delete card
+                </button>
+              ) : null}
               <button
                 type="submit"
                 form="card-edit-form"
@@ -593,7 +626,7 @@ export default function CardDrawer({
       />
 
       <BoardAlertModal
-        open={confirmDeleteCard}
+        open={confirmDeleteCard && Boolean(onDeleteCard)}
         title="Delete this card?"
         message={`"${card.title}" will be permanently removed from the production board.`}
         tone="warn"

@@ -435,6 +435,28 @@
 .activity p strong { color: var(--text); }
 .activity time { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
+.detail-readonly {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.detail-readonly p {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.detail-readonly span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.detail-readonly strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
 .detail-footer {
   flex-shrink: 0;
   padding: 12px 18px 16px;

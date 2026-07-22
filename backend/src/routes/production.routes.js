@@ -34,7 +34,7 @@ productionRoutes.get(
 
 productionRoutes.post(
   '/cards',
-  requireRole('admin', 'production'),
+  requireRole('admin'),
   asyncHandler(createCard),
 );
 
@@ -46,6 +46,6 @@ productionRoutes.patch(
 
 productionRoutes.delete(
   '/cards/:id',
-  requireRole('admin', 'production'),
+  requireRole('admin'),
   asyncHandler(deleteCard),
 );

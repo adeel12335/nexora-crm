@@ -2,8 +2,20 @@ import { useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
 import TaskCard from './TaskCard.jsx';
 
-export default function KanbanColumn({ stage, cards, selectedId, draggingId, onSelect, onDragStart, onDragEnd, onDrop, onAddCard, mobileActive }) {
+export default function KanbanColumn({
+  stage,
+  cards,
+  selectedId,
+  draggingId,
+  onSelect,
+  onDragStart,
+  onDragEnd,
+  onDrop,
+  onAddCard,
+  mobileActive,
+}) {
   const [dragOver, setDragOver] = useState(false);
+  const canAdd = typeof onAddCard === 'function';
 
   return (
     <section className={`kanban-column${dragOver ? ' drag-over' : ''}${mobileActive ? '' : ' mobile-hidden'}`} style={{ '--stage': stage.color }}>
@@ -11,9 +23,11 @@ export default function KanbanColumn({ stage, cards, selectedId, draggingId, onS
         <span className="stage-dot" />
         <h3>{stage.title}</h3>
         <span className="column-count">{cards.length}</span>
-        <button className="column-add" aria-label={`Add to ${stage.title}`} onClick={() => onAddCard(stage.id)}>
-          <Icon id="i-plus" />
-        </button>
+        {canAdd ? (
+          <button className="column-add" aria-label={`Add to ${stage.title}`} onClick={() => onAddCard(stage.id)}>
+            <Icon id="i-plus" />
+          </button>
+        ) : null}
       </header>
       <div
         className="card-list"
@@ -34,9 +48,11 @@ export default function KanbanColumn({ stage, cards, selectedId, draggingId, onS
           />
         )) : <div className="empty-state">No matching cards</div>}
       </div>
-      <button className="add-card-row" onClick={() => onAddCard(stage.id)}>
-        <Icon id="i-plus" /> Add another card
-      </button>
+      {canAdd ? (
+        <button className="add-card-row" onClick={() => onAddCard(stage.id)}>
+          <Icon id="i-plus" /> Add another card
+        </button>
+      ) : null}
     </section>
   );
 }

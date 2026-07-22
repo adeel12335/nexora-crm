@@ -53,6 +53,10 @@ function hasLiveLink(card) {
 export default function KanbanBoard() {
   const { token, user } = useAuth();
   const { showToast } = useToast();
+  const isAdmin = user?.role === 'admin';
+  const canCreateCards = isAdmin;
+  const canDeleteCards = isAdmin;
+  const canEditCardMeta = isAdmin;
   const [cards, setCards] = useState([]);
   const [assignees, setAssignees] = useState([]);
   const [crmClients, setCrmClients] = useState([]);
@@ -80,18 +84,31 @@ export default function KanbanBoard() {
     (async () => {
       setLoading(true);
       try {
-        const [usersData, clientsData, cardsData] = await Promise.all([
-          api.listUsers(token, '?includeInactive=0&pageSize=200'),
-          api.listClients(token, { pageSize: 500 }),
-          api.listProductionCards(token),
-        ]);
+        // Production role cannot list users — never fail the whole board on that.
+        const cardsPromise = api.listProductionCards(token);
+        const metaPromise = isAdmin
+          ? Promise.all([
+              api.listUsers(token, '?includeInactive=0&pageSize=200'),
+              api.listClients(token, { pageSize: 500 }),
+            ])
+          : Promise.resolve([null, null]);
+
+        const [cardsData, meta] = await Promise.all([cardsPromise, metaPromise]);
         if (cancelled) return;
-        const users = (usersData.users || usersData || []).filter((u) =>
-          u.isActive !== false && u.role === 'production'
-        );
-        setAssignees(users.map(toAssignee));
-        setCrmClients((clientsData.clients || []).filter((c) => c.isActive !== false));
+
         setCards((cardsData.cards || []).map(hydrateCard));
+
+        if (isAdmin) {
+          const [usersData, clientsData] = meta;
+          const users = (usersData.users || usersData || []).filter((u) =>
+            u.isActive !== false && u.role === 'production'
+          );
+          setAssignees(users.map(toAssignee));
+          setCrmClients((clientsData.clients || []).filter((c) => c.isActive !== false));
+        } else if (user) {
+          setAssignees([toAssignee({ id: user.id, name: user.name, email: user.email })]);
+          setCrmClients([]);
+        }
       } catch (err) {
         if (!cancelled) {
           showToast(err.message || 'Could not load board');
@@ -102,7 +119,7 @@ export default function KanbanBoard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [token, user, loadCards, showToast]);
+  }, [token, user, isAdmin, showToast]);
 
   const selectedCard = cards.find((c) => c.id === selectedId) || null;
   const selectedStage = productionStages.find((s) => s.id === selectedCard?.stage);
@@ -207,6 +224,10 @@ export default function KanbanBoard() {
   }
 
   function handleAddCard(stageId) {
+    if (!canCreateCards) {
+      showToast('Only admin can create production cards');
+      return;
+    }
     setModalStage(stageId);
     setModalOpen(true);
   }
@@ -397,9 +418,11 @@ export default function KanbanBoard() {
           <button type="button" className="tool-btn" onClick={() => setFilterOpen((v) => !v)}>
             <Icon id="i-filter" /><span>Filter</span>
           </button>
-          <button type="button" className="primary-btn" onClick={() => handleAddCard('new_draft')}>
-            New Card <Icon id="i-plus" />
-          </button>
+          {canCreateCards ? (
+            <button type="button" className="primary-btn" onClick={() => handleAddCard('new_draft')}>
+              New Card <Icon id="i-plus" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -440,7 +463,7 @@ export default function KanbanBoard() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onDrop={handleDrop}
-            onAddCard={handleAddCard}
+            onAddCard={canCreateCards ? handleAddCard : null}
             mobileActive={stage.id === mobileStage}
           />
         ))}
@@ -455,7 +478,8 @@ export default function KanbanBoard() {
         comments={comments}
         onAddComment={handleAddComment}
         onUpdateCard={handleUpdateCard}
-        onDeleteCard={handleDeleteCard}
+        onDeleteCard={canDeleteCards ? handleDeleteCard : null}
+        canEditMeta={canEditCardMeta}
         onUploadFiles={handleUploadFiles}
         onRemoveFile={handleRemoveFile}
         onSaveFeedback={handleSaveFeedback}
@@ -466,15 +490,17 @@ export default function KanbanBoard() {
       />
       {drawerOpen && <div className="scrim visible" onClick={() => setDrawerOpen(false)} />}
 
-      <NewCardModal
-        open={modalOpen}
-        stages={productionStages}
-        assignees={assignees}
-        crmClients={crmClients}
-        defaultStage={modalStage}
-        onClose={() => setModalOpen(false)}
-        onCreate={handleCreateCard}
-      />
+      {canCreateCards ? (
+        <NewCardModal
+          open={modalOpen}
+          stages={productionStages}
+          assignees={assignees}
+          crmClients={crmClients}
+          defaultStage={modalStage}
+          onClose={() => setModalOpen(false)}
+          onCreate={handleCreateCard}
+        />
+      ) : null}
     </section>
   );
 }
