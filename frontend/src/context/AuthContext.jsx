@@ -15,7 +15,8 @@ function loadStored() {
 
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(loadStored);
-  const [loading, setLoading] = useState(true);
+  // Don't block first paint when we already have a cached session.
+  const [loading, setLoading] = useState(() => !loadStored()?.token);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,19 +24,22 @@ export function AuthProvider({ children }) {
     async function verify() {
       const stored = loadStored();
       if (!stored?.token) {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
         return;
       }
+      // Keep showing cached user while we revalidate.
+      if (!cancelled) setLoading(false);
       try {
         const { user } = await api.me(stored.token);
-        if (!cancelled) setAuth({ token: stored.token, user });
+        if (!cancelled) {
+          setAuth({ token: stored.token, user });
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: stored.token, user }));
+        }
       } catch {
         if (!cancelled) {
           setAuth(null);
           window.localStorage.removeItem(STORAGE_KEY);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
 

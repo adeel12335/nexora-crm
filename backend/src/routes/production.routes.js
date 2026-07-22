@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   listCards,
+  getCard,
   listPortfolio,
   createCard,
   updateCard,
@@ -23,6 +24,12 @@ productionRoutes.get(
   '/cards',
   requireRole('admin', 'production'),
   asyncHandler(listCards),
+);
+
+productionRoutes.get(
+  '/cards/:id',
+  requireRole('admin', 'production'),
+  asyncHandler(getCard),
 );
 
 productionRoutes.post(

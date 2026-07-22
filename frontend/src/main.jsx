@@ -11,10 +11,13 @@ import './styles/auth.css'
 import './styles/commission.css'
 import App from './App.jsx'
 
-registerSW({ immediate: true })
-
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
+
+// Register after first paint so SW doesn't compete with initial load.
+window.setTimeout(() => {
+  registerSW({ immediate: true })
+}, 1500)

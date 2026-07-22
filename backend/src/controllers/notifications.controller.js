@@ -77,6 +77,7 @@ export async function unreadCount(req, res) {
     `SELECT COUNT(*) AS unread FROM notifications WHERE user_id = ? AND is_read = 0`,
     [req.user.id]
   );
+  res.set('Cache-Control', 'private, max-age=15');
   res.json({ unread: Number(row?.unread || 0) });
 }
 

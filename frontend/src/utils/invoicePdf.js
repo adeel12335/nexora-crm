@@ -1,4 +1,7 @@
 import { jsPDF } from 'jspdf';
+import { addWorkingDays } from './invoiceHelpers.js';
+
+export { addWorkingDays, invoiceNumberFromPayment } from './invoiceHelpers.js';
 
 export const DEFAULT_INVOICE_CONTENT = {
   phone: '+1 (218) 305-9586',
@@ -35,23 +38,6 @@ function formatInvoiceDate(value) {
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   return `${day}/${month}/${date.getFullYear()}`;
-}
-
-/** Add N weekdays (Monday-Friday) to a date. */
-export function addWorkingDays(from, days = 4) {
-  const date = new Date(from);
-  let left = days;
-  while (left > 0) {
-    date.setDate(date.getDate() + 1);
-    const day = date.getDay();
-    if (day !== 0 && day !== 6) left -= 1;
-  }
-  return date;
-}
-
-export function invoiceNumberFromPayment(paymentId) {
-  const number = Number(paymentId) || 0;
-  return `WIKI-${String(number).padStart(4, '0')}`;
 }
 
 async function loadImageDataUrl(src) {

@@ -80,9 +80,10 @@ export default function KanbanBoard() {
     (async () => {
       setLoading(true);
       try {
-        const [usersData, clientsData] = await Promise.all([
+        const [usersData, clientsData, cardsData] = await Promise.all([
           api.listUsers(token, '?includeInactive=0&pageSize=200'),
           api.listClients(token, { pageSize: 500 }),
+          api.listProductionCards(token),
         ]);
         if (cancelled) return;
         const users = (usersData.users || usersData || []).filter((u) =>
@@ -90,7 +91,7 @@ export default function KanbanBoard() {
         );
         setAssignees(users.map(toAssignee));
         setCrmClients((clientsData.clients || []).filter((c) => c.isActive !== false));
-        await loadCards();
+        setCards((cardsData.cards || []).map(hydrateCard));
       } catch (err) {
         if (!cancelled) {
           showToast(err.message || 'Could not load board');
@@ -161,6 +162,12 @@ export default function KanbanBoard() {
   function handleSelect(id) {
     setSelectedId(id);
     setDrawerOpen(true);
+    // Hydrate full card (file data URLs) in background after light list load.
+    api.getProductionCard(token, id)
+      .then((data) => {
+        if (data?.card) replaceCard(data.card);
+      })
+      .catch(() => {});
   }
 
   function handleDragStart(e, card) {

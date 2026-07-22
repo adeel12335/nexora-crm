@@ -49,7 +49,11 @@ export async function login(req, res) {
 }
 
 export async function me(req, res) {
-  const [[user]] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  const [[user]] = await pool.query(
+    `SELECT id, name, email, phone, whatsapp_number, role, avatar_url, is_active
+     FROM users WHERE id = ?`,
+    [req.user.id],
+  );
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   // An already-issued token stays valid until it expires, so a session that was
@@ -58,6 +62,7 @@ export async function me(req, res) {
     return res.status(403).json({ error: 'This account has been deactivated' });
   }
 
+  res.set('Cache-Control', 'private, max-age=30');
   res.json({ user: toPublicUser(user) });
 }
 

@@ -44,7 +44,7 @@ export default function RoleLayout({ roleKey }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token, location.pathname]);
+  }, [token]);
 
   useEffect(() => {
     if (!sidebarOpen) return undefined;
@@ -60,7 +60,16 @@ export default function RoleLayout({ roleKey }) {
     };
   }, [sidebarOpen, mobileNav]);
 
-  if (loading) return null;
+  if (loading && !user) {
+    return (
+      <div className="app-boot" role="status" aria-live="polite">
+        <div className="app-boot-card">
+          <div className="app-boot-spinner" aria-hidden="true" />
+          <p>Loading portal…</p>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (user.role !== roleKey) return <Navigate to={`/${user.role}`} replace />;
 

@@ -19,9 +19,8 @@ import {
 import { computeDueDate } from '../../utils/deadlineUtils.js';
 import {
   addWorkingDays,
-  downloadClientInvoice,
   invoiceNumberFromPayment,
-} from '../../utils/invoicePdf.js';
+} from '../../utils/invoiceHelpers.js';
 import { PAYMENT_METHODS, paymentMethodLabel } from '../../utils/paymentMethods.js';
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
@@ -381,6 +380,7 @@ export default function ClientsPage() {
   async function handleDownloadInvoice(client, payment, extras = {}) {
     try {
       const payload = buildInvoicePayload(client, payment, extras);
+      const { downloadClientInvoice } = await import('../../utils/invoicePdf.js');
       await downloadClientInvoice(payload);
       showToast('Invoice downloaded');
     } catch (err) {

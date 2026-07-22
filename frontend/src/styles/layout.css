@@ -1,5 +1,38 @@
 .app-shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
 
+.app-boot {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--canvas, #f6f3ef);
+}
+.app-boot-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-width: 180px;
+  padding: 28px 32px;
+  border: 1px solid var(--border, #e5e0d8);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  box-shadow: var(--shadow-sm, 0 8px 24px rgba(0,0,0,.06));
+  color: var(--muted, #6b7280);
+  font-size: 14px;
+  font-weight: 600;
+}
+.app-boot-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(7, 82, 77, 0.18);
+  border-top-color: var(--secondary, #07524d);
+  border-radius: 50%;
+  animation: app-boot-spin 0.7s linear infinite;
+}
+@keyframes app-boot-spin {
+  to { transform: rotate(360deg); }
+}
+
 .sidebar {
   position: sticky;
   top: 0;

@@ -175,6 +175,7 @@ export const api = {
     const q = params.toString();
     return request(`/production/cards${q ? `?${q}` : ''}`, { token });
   },
+  getProductionCard: (token, id) => request(`/production/cards/${id}`, { token }),
   createProductionCard: (token, body) =>
     request('/production/cards', { method: 'POST', body, token }),
   updateProductionCard: (token, id, body) =>

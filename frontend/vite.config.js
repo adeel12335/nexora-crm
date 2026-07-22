@@ -43,13 +43,23 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // App shell + static assets. API calls always go to network.
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         navigateFallback: '/index.html',
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-            handler: 'NetworkOnly',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'wiki-studio-api',
+              networkTimeoutSeconds: 8,
+              expiration: {
+                maxEntries: 64,
+                maxAgeSeconds: 60 * 2,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
           },
           {
             urlPattern: ({ request }) => request.destination === 'image',
@@ -62,12 +72,38 @@ export default defineConfig({
               },
             },
           },
+          {
+            urlPattern: ({ request }) =>
+              request.destination === 'script' || request.destination === 'style',
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'wiki-studio-static',
+              expiration: {
+                maxEntries: 60,
+                maxAgeSeconds: 60 * 60 * 24 * 7,
+              },
+            },
+          },
         ],
       },
       devOptions: {
-        // Keep SW off in `vite` dev — enable for install testing via preview/build.
         enabled: false,
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('jspdf')) return 'jspdf'
+          if (id.includes('react-datepicker')) return 'datepicker'
+          if (id.includes('react-select') || id.includes('@emotion')) return 'select'
+          if (id.includes('react-router')) return 'router'
+          if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor'
+          return undefined
+        },
+      },
+    },
+  },
 })

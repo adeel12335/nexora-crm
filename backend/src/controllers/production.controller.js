@@ -44,9 +44,22 @@ function parseExtras(raw) {
   }
 }
 
-function toCard(row) {
+function toCard(row, { light = false } = {}) {
   const extras = parseExtras(row.extras_json);
   const assigneeId = row.assignee_id;
+  const rawFiles = extras.fileList || [];
+  const fileList = light
+    ? rawFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        uploadedAt: f.uploadedAt,
+        // Omit base64 data URLs from list payloads (huge).
+        url: typeof f.url === 'string' && f.url.startsWith('data:') ? null : f.url,
+      }))
+    : rawFiles;
+
   return {
     id: row.id,
     title: row.title,
@@ -69,8 +82,8 @@ function toCard(row) {
     dueDate: row.due_date,
     comments: Number(row.comments_count || 0),
     attachments: Number(row.attachments_count || 0),
-    commentList: extras.commentList || [],
-    fileList: extras.fileList || [],
+    commentList: light ? (extras.commentList || []).slice(-20) : (extras.commentList || []),
+    fileList,
     feedback: extras.feedback || {
       status: 'none',
       note: '',
@@ -245,7 +258,18 @@ export async function listCards(req, res) {
     `${CARD_SELECT} ${where} ORDER BY pc.due_date ASC, pc.id DESC`,
     params,
   );
-  res.json({ cards: rows.map(toCard) });
+  res.json({ cards: rows.map((row) => toCard(row, { light: true })) });
+}
+
+/** GET /api/production/cards/:id — full card including file data URLs */
+export async function getCard(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid card id' });
+  }
+  const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
+  if (!row) return res.status(404).json({ error: 'Card not found' });
+  res.json({ card: toCard(row, { light: false }) });
 }
 
 /**
