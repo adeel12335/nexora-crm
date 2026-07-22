@@ -1,6 +1,7 @@
 import { Icon } from '../../icons/IconSprite.jsx';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import { isHighPriority, priorityLabel } from '../../utils/boardValidation.js';
+import { isLiveLikeStage } from '../../data/productionStages.js';
 
 export default function TaskCard({ card, stageColor, selected, onSelect, onDragStart, onDragEnd, dragging }) {
   const deadline = getDeadlineInfo(card.dueDate);
@@ -10,10 +11,11 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
   const priority = card.priority;
   const showPriority = priority && priority !== 'none';
   const liveUrl = String(card.liveUrl || '').trim();
+  const liveLike = isLiveLikeStage(card.stage);
 
   return (
     <article
-      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${card.stage === 'live' ? ' is-live' : ''}`}
+      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${liveLike ? ' is-live' : ''}`}
       style={{ '--stage': stageColor }}
       role="button"
       tabIndex={0}
@@ -54,7 +56,7 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
             {feedback === 'approved' ? 'Approved' : feedback === 'changes_requested' ? 'Changes' : 'Pending'}
           </span>
         ) : null}
-        {card.stage === 'live' && liveUrl ? (
+        {liveLike && liveUrl ? (
           <a
             className="live-pill"
             href={liveUrl}

@@ -11,6 +11,7 @@ import {
   validateCardForm,
   validateFiles,
 } from '../../utils/boardValidation.js';
+import { requiresLiveLink } from '../../data/productionStages.js';
 import { computeDueDate } from '../../utils/deadlineUtils.js';
 
 function blankForm(defaultStage, assignees) {
@@ -35,16 +36,24 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
   const [pendingFiles, setPendingFiles] = useState([]);
   const [alert, setAlert] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [present, setPresent] = useState(open);
+  const [visible, setVisible] = useState(open);
 
   useEffect(() => {
     if (open) {
       setForm(blankForm(defaultStage, assignees));
       setPendingFiles([]);
       setSubmitting(false);
+      setPresent(true);
+      const id = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(id);
     }
+    setVisible(false);
+    const t = setTimeout(() => setPresent(false), 220);
+    return () => clearTimeout(t);
   }, [open, defaultStage, assignees]);
 
-  if (!open) return null;
+  if (!present) return null;
 
   function update(field, value) {
     setForm((f) => {
@@ -123,9 +132,9 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
 
   return (
     <>
-      <div className="modal-backdrop" onClick={onClose}>
+      <div className={`modal-backdrop${visible ? ' is-open' : ''}`} onClick={onClose}>
         <div
-          className="modal modal-wide"
+          className={`modal modal-wide${visible ? ' is-open' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-labelledby="new-card-title"
@@ -223,7 +232,7 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
             </div>
 
             <label>
-              Live link {form.stage === 'live' ? <span className="field-hint">(required for Live)</span> : <span className="field-hint">(optional)</span>}
+              Live link {requiresLiveLink(form.stage) ? <span className="field-hint">(required for Live)</span> : <span className="field-hint">(optional)</span>}
               <input
                 type="url"
                 value={form.liveUrl}

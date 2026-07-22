@@ -1,7 +1,65 @@
 import { pool } from '../config/db.js';
 import { notifyProductionCardChange, notifyProductionCardCreated } from '../services/notifications.js';
 
-const STAGES = new Set(['new_draft', 'in_progress', 'revision', 'review', 'live', 'done']);
+const STAGES = new Set([
+  'new_project_create_draft',
+  'page_expansion',
+  'draft_done',
+  'draft_revisions',
+  'pending_approval',
+  'push_to_live',
+  'page_live',
+  'edits_after_publishing',
+  'pages_to_relive',
+  'stopped_process',
+  // legacy (accepted then normalized)
+  'new_draft',
+  'in_progress',
+  'revision',
+  'review',
+  'live',
+  'done',
+]);
+
+const LEGACY_STAGE_MAP = {
+  new_draft: 'new_project_create_draft',
+  in_progress: 'page_expansion',
+  revision: 'draft_revisions',
+  review: 'pending_approval',
+  live: 'page_live',
+  done: 'stopped_process',
+};
+
+const LIVE_LINK_STAGES = new Set(['page_live', 'pages_to_relive']);
+
+function normalizeStage(stage) {
+  const key = String(stage || '').trim();
+  if (LEGACY_STAGE_MAP[key]) return LEGACY_STAGE_MAP[key];
+  return key;
+}
+
+function requiresLiveLink(stage) {
+  return LIVE_LINK_STAGES.has(normalizeStage(stage));
+}
+
+function isValidStage(stage) {
+  const key = String(stage || '').trim();
+  if (!key) return false;
+  if (LEGACY_STAGE_MAP[key]) return true;
+  return Object.values(LEGACY_STAGE_MAP).includes(key)
+    || [
+      'new_project_create_draft',
+      'page_expansion',
+      'draft_done',
+      'draft_revisions',
+      'pending_approval',
+      'push_to_live',
+      'page_live',
+      'edits_after_publishing',
+      'pages_to_relive',
+      'stopped_process',
+    ].includes(key);
+}
 const TYPES = new Set(['draft', 'revision']);
 const PRIORITIES = new Set(['none', 'low', 'medium', 'high']);
 
@@ -62,13 +120,27 @@ function sanitizeDescriptionForProduction(description) {
 
 function mapDeliveryList(raw, { light = false } = {}) {
   const list = Array.isArray(raw) ? raw : [];
-  if (!light) return list;
-  return list.map((item) => {
-    if (item?.kind !== 'file') return item;
+  return list.map((original) => {
+    const item = migrateLegacyDelivery(original) || {};
+    const fileUrl = item.fileUrl ?? null;
+    const linkUrl = item.url ?? null;
+    const mapped = {
+      id: item.id,
+      description: String(item.description || '').trim(),
+      url: linkUrl,
+      name: item.name || null,
+      size: item.size ?? null,
+      type: item.type || null,
+      fileUrl,
+      createdAt: item.createdAt || null,
+      createdBy: item.createdBy || null,
+      feedback: defaultDeliveryFeedback(item.feedback),
+    };
+    if (!light) return mapped;
     return {
-      ...item,
-      // Omit base64 data URLs from list payloads (huge).
-      url: typeof item.url === 'string' && item.url.startsWith('data:') ? null : item.url,
+      ...mapped,
+      fileUrl: typeof mapped.fileUrl === 'string' && mapped.fileUrl.startsWith('data:') ? null : mapped.fileUrl,
+      url: typeof mapped.url === 'string' && mapped.url.startsWith('data:') ? null : mapped.url,
     };
   });
 }
@@ -100,7 +172,7 @@ function toCard(row, { light = false, role = null } = {}) {
     client: row.client,
     clientId: row.client_id ?? null,
     type: row.type,
-    stage: row.stage,
+    stage: normalizeStage(row.stage),
     assignee: {
       id: assigneeId,
       name: row.assignee_name || 'Unassigned',
@@ -244,6 +316,72 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment' } = {}) {
   };
 }
 
+function defaultDeliveryFeedback(raw) {
+  const allowed = new Set(['none', 'pending', 'approved', 'changes_requested']);
+  const status = allowed.has(String(raw?.status || 'none')) ? String(raw.status) : 'none';
+  return {
+    status,
+    note: String(raw?.note || '').trim().slice(0, 1000),
+    updatedAt: raw?.updatedAt || null,
+    author: raw?.author ? String(raw.author).slice(0, 80) : null,
+  };
+}
+
+/** Map old kind:link|file items into the description-based shape. */
+function migrateLegacyDelivery(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  if (raw.description != null || raw.fileUrl != null || !raw.kind) return raw;
+
+  if (raw.kind === 'link') {
+    return {
+      id: raw.id,
+      description: String(raw.label || raw.url || 'Delivery').trim(),
+      url: raw.url || null,
+      fileUrl: null,
+      name: null,
+      size: null,
+      type: null,
+      createdAt: raw.createdAt,
+      createdBy: raw.createdBy || null,
+      feedback: raw.feedback,
+    };
+  }
+
+  if (raw.kind === 'file') {
+    return {
+      id: raw.id,
+      description: String(raw.label || raw.name || 'Delivery').trim(),
+      url: null,
+      fileUrl: raw.url || raw.fileUrl || null,
+      name: raw.name || null,
+      size: raw.size ?? null,
+      type: raw.type || null,
+      createdAt: raw.createdAt,
+      createdBy: raw.createdBy || null,
+      feedback: raw.feedback,
+    };
+  }
+
+  return raw;
+}
+
+/**
+ * Non-admins cannot change per-delivery feedback — keep previous feedback by id.
+ */
+function protectDeliveryFeedback(incoming, previous) {
+  const prevById = new Map((Array.isArray(previous) ? previous : []).map((d) => [String(d.id), d]));
+  return (Array.isArray(incoming) ? incoming : []).map((item) => {
+    const prev = prevById.get(String(item?.id));
+    if (prev?.feedback) {
+      return { ...item, feedback: prev.feedback };
+    }
+    return {
+      ...item,
+      feedback: { status: 'none', note: '', updatedAt: null, author: null },
+    };
+  });
+}
+
 function sanitizeDeliveryList(deliveryList) {
   const itemsIn = Array.isArray(deliveryList) ? deliveryList : [];
   if (itemsIn.length > 5) {
@@ -254,48 +392,79 @@ function sanitizeDeliveryList(deliveryList) {
 
   const items = [];
   let totalBytes = 0;
-  for (const raw of itemsIn) {
-    const kind = raw?.kind === 'file' ? 'file' : raw?.kind === 'link' ? 'link' : null;
-    if (!kind) {
-      const err = new Error('Each delivery must be a link or a file');
+  for (const original of itemsIn) {
+    const raw = migrateLegacyDelivery(original);
+    const description = String(raw?.description || '').trim().slice(0, 1000);
+    if (description && description.length < 3) {
+      const err = new Error('Delivery description must be at least 3 characters when provided');
       err.status = 400;
       throw err;
     }
-    const label = String(raw?.label || '').trim().slice(0, 120);
-    const createdAt = raw.createdAt || new Date().toISOString();
-    const id = raw.id ?? Date.now();
 
-    if (kind === 'link') {
-      const url = normalizeUrl(raw.url);
-      if (!isValidUrl(url)) {
+    let linkUrl = null;
+    const rawLink = String(raw?.url || '').trim();
+    if (rawLink) {
+      linkUrl = normalizeUrl(rawLink);
+      if (!isValidUrl(linkUrl)) {
         const err = new Error('Delivery link must be a valid http(s) URL');
         err.status = 400;
         throw err;
       }
-      items.push({
-        id,
-        kind: 'link',
-        label: label || url,
-        url,
-        createdAt,
-      });
-      continue;
     }
 
-    const { file, totalBytes: nextBytes } = sanitizeFileAttachment(raw, {
-      totalBytes,
-      label: 'Delivery file',
-    });
-    totalBytes = nextBytes;
+    let fileName = null;
+    let fileSize = null;
+    let fileType = null;
+    let fileUrl = null;
+    const hasFile = Boolean(
+      raw?.fileUrl
+      || (raw?.name && Number(raw?.size) > 0)
+    );
+    if (hasFile) {
+      const { file, totalBytes: nextBytes } = sanitizeFileAttachment(
+        {
+          id: raw.id,
+          name: raw.name,
+          size: raw.size,
+          type: raw.type,
+          url: raw.fileUrl || null,
+          uploadedAt: raw.createdAt,
+        },
+        { totalBytes, label: 'Delivery file' },
+      );
+      totalBytes = nextBytes;
+      fileName = file.name;
+      fileSize = file.size;
+      fileType = file.type;
+      fileUrl = file.url;
+    }
+
+    if (!description && !linkUrl && !fileUrl) {
+      const err = new Error('Add a description, link, or file for each delivery');
+      err.status = 400;
+      throw err;
+    }
+
+    let createdBy = null;
+    if (raw?.createdBy && typeof raw.createdBy === 'object') {
+      createdBy = {
+        id: Number(raw.createdBy.id) || null,
+        name: String(raw.createdBy.name || '').trim().slice(0, 80) || null,
+        role: String(raw.createdBy.role || '').trim().slice(0, 32) || null,
+      };
+    }
+
     items.push({
-      id,
-      kind: 'file',
-      label: label || file.name,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      url: file.url,
-      createdAt,
+      id: raw.id ?? Date.now(),
+      description,
+      url: linkUrl,
+      name: fileName,
+      size: fileSize,
+      type: fileType,
+      fileUrl,
+      createdAt: raw.createdAt || new Date().toISOString(),
+      createdBy,
+      feedback: defaultDeliveryFeedback(raw.feedback),
     });
   }
   return items;
@@ -340,7 +509,7 @@ async function syncClientProductionStatus(clientId) {
   const [[stats]] = await pool.query(
     `SELECT
        COUNT(*) AS total,
-       SUM(CASE WHEN stage = 'done' THEN 1 ELSE 0 END) AS done_count
+       SUM(CASE WHEN stage IN ('page_live', 'stopped_process', 'done', 'live') THEN 1 ELSE 0 END) AS done_count
      FROM production_cards WHERE client_id = ?`,
     [clientId],
   );
@@ -361,9 +530,9 @@ export async function listCards(req, res) {
   const stage = req.query.stage ? String(req.query.stage) : '';
   const params = [];
   let where = 'WHERE 1=1';
-  if (stage && STAGES.has(stage)) {
+  if (stage && isValidStage(stage)) {
     where += ' AND pc.stage = ?';
-    params.push(stage);
+    params.push(normalizeStage(stage));
   }
 
   const [rows] = await pool.query(
@@ -391,7 +560,7 @@ export async function getCard(req, res) {
 export async function listPortfolio(req, res) {
   const role = req.user.role;
   const params = [];
-  let where = `WHERE pc.stage = 'live' AND pc.live_url IS NOT NULL AND TRIM(pc.live_url) <> ''`;
+  let where = `WHERE pc.stage IN ('page_live', 'live') AND pc.live_url IS NOT NULL AND TRIM(pc.live_url) <> ''`;
 
   if (role === 'agent') {
     where += ' AND c.agent_id = ?';
@@ -434,7 +603,7 @@ export async function createCard(req, res) {
     client,
     clientId,
     type = 'draft',
-    stage = 'new_draft',
+    stage = 'new_project_create_draft',
     assigneeId,
     priority = 'none',
     description = '',
@@ -452,7 +621,8 @@ export async function createCard(req, res) {
   }
   if (titleTrim.length > 120) return res.status(400).json({ error: 'Title cannot exceed 120 characters' });
   if (!TYPES.has(type)) return res.status(400).json({ error: 'Invalid type' });
-  if (!STAGES.has(stage)) return res.status(400).json({ error: 'Invalid stage' });
+  const stageNorm = normalizeStage(stage);
+  if (!isValidStage(stage)) return res.status(400).json({ error: 'Invalid stage' });
   const priorityKey = priority === true ? 'high' : (priority === false ? 'none' : priority);
   if (!PRIORITIES.has(priorityKey)) return res.status(400).json({ error: 'Invalid priority' });
   if (!dueDate) return res.status(400).json({ error: 'Due date is required' });
@@ -462,9 +632,9 @@ export async function createCard(req, res) {
   const clientName = resolved.name;
 
   let url = normalizeUrl(liveUrl);
-  if (stage === 'live') {
+  if (requiresLiveLink(stageNorm)) {
     if (!isValidUrl(url)) {
-      return res.status(400).json({ error: 'A valid live link is required when stage is Live' });
+      return res.status(400).json({ error: 'A valid live link is required for this stage' });
     }
   } else if (url && !isValidUrl(url)) {
     return res.status(400).json({ error: 'Live link must be a valid http(s) URL' });
@@ -483,7 +653,7 @@ export async function createCard(req, res) {
       clientName,
       resolved.id,
       type,
-      stage,
+      stageNorm,
       safeAssigneeId,
       priorityFlag(priorityKey),
       priorityKey,
@@ -550,7 +720,9 @@ export async function updateCard(req, res) {
   }
   if (next.title.length > 120) return res.status(400).json({ error: 'Title cannot exceed 120 characters' });
   if (!TYPES.has(next.type)) return res.status(400).json({ error: 'Invalid type' });
-  if (!STAGES.has(next.stage)) return res.status(400).json({ error: 'Invalid stage' });
+  const stageNorm = normalizeStage(next.stage);
+  if (!isValidStage(next.stage)) return res.status(400).json({ error: 'Invalid stage' });
+  next.stage = stageNorm;
   const priorityKey = next.priority === true ? 'high' : (next.priority === false ? 'none' : next.priority);
   if (!PRIORITIES.has(priorityKey)) return res.status(400).json({ error: 'Invalid priority' });
 
@@ -559,9 +731,9 @@ export async function updateCard(req, res) {
   const clientName = resolved.name;
 
   let url = normalizeUrl(next.liveUrl);
-  if (next.stage === 'live') {
+  if (requiresLiveLink(stageNorm)) {
     if (!isValidUrl(url)) {
-      return res.status(400).json({ error: 'Add a valid live link before moving to Live' });
+      return res.status(400).json({ error: 'Add a valid live link before moving to this stage' });
     }
   } else if (url && !isValidUrl(url)) {
     return res.status(400).json({ error: 'Live link must be a valid http(s) URL' });
@@ -570,11 +742,16 @@ export async function updateCard(req, res) {
   }
 
   const prevExtras = parseExtras(existing.extras_json);
+  let nextDeliveryList = body.deliveryList !== undefined ? body.deliveryList : prevExtras.deliveryList;
+  if (body.deliveryList !== undefined && req.user?.role !== 'admin') {
+    nextDeliveryList = protectDeliveryFeedback(body.deliveryList, prevExtras.deliveryList);
+  }
+
   const extras = sanitizeExtras({
     commentList: body.commentList !== undefined ? body.commentList : prevExtras.commentList,
     fileList: body.fileList !== undefined ? body.fileList : prevExtras.fileList,
     feedback: body.feedback !== undefined ? body.feedback : prevExtras.feedback,
-    deliveryList: body.deliveryList !== undefined ? body.deliveryList : prevExtras.deliveryList,
+    deliveryList: nextDeliveryList,
   });
 
   const prevClientId = existing.client_id;

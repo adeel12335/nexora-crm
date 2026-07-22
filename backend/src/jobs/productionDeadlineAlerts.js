@@ -32,7 +32,7 @@ export async function runProductionDeadlineAlerts(now = new Date()) {
        u.whatsapp_number AS assignee_whatsapp
      FROM production_cards pc
      JOIN users u ON u.id = pc.assignee_id
-     WHERE pc.stage NOT IN ('live', 'done')
+     WHERE pc.stage NOT IN ('page_live', 'pages_to_relive', 'stopped_process', 'live', 'done')
        AND pc.due_date IS NOT NULL`
   );
 

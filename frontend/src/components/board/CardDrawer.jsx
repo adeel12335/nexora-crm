@@ -14,12 +14,13 @@ import {
   toDateInputValue,
   validateCardForm,
   validateComment,
-  validateDeliveryFiles,
-  validateDeliveryLink,
+  validateDelivery,
+  validateDeliveryFeedback,
   validateFeedback,
   validateFiles,
   MAX_DELIVERIES_PER_CARD,
 } from '../../utils/boardValidation.js';
+import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
 
 const TABS = [
   { id: 'details', label: 'Status', icon: 'i-settings' },
@@ -28,6 +29,17 @@ const TABS = [
   { id: 'comments', label: 'Comments', icon: 'i-message' },
   { id: 'feedback', label: 'Feedback', icon: 'i-star' },
 ];
+
+function deliveryFeedbackLabel(status) {
+  return FEEDBACK_STATUS.find((s) => s.value === status)?.label || 'No feedback yet';
+}
+
+function deliveryFeedbackPillClass(status) {
+  if (status === 'approved') return 'is-approved';
+  if (status === 'changes_requested') return 'is-changes';
+  if (status === 'pending') return 'is-pending';
+  return '';
+}
 
 export default function CardDrawer({
   card,
@@ -42,9 +54,10 @@ export default function CardDrawer({
   canEditMeta = true,
   onUploadFiles,
   onRemoveFile,
-  onAddDeliveryLink,
-  onUploadDeliveryFiles,
+  onAddDelivery,
+  onSaveDeliveryFeedback,
   onRemoveDelivery,
+  canReviewDelivery = false,
   onSaveFeedback,
   stages,
   assignees = [],
@@ -56,8 +69,10 @@ export default function CardDrawer({
   const commentInputRef = useRef(null);
   const [tab, setTab] = useState('details');
   const [comment, setComment] = useState('');
+  const [deliveryDescription, setDeliveryDescription] = useState('');
   const [deliveryUrl, setDeliveryUrl] = useState('');
-  const [deliveryLabel, setDeliveryLabel] = useState('');
+  const [deliveryFile, setDeliveryFile] = useState(null);
+  const [deliveryFeedbackDrafts, setDeliveryFeedbackDrafts] = useState({});
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState(null);
@@ -71,8 +86,9 @@ export default function CardDrawer({
     if (!card) return;
     setTab('details');
     setComment('');
+    setDeliveryDescription('');
     setDeliveryUrl('');
-    setDeliveryLabel('');
+    setDeliveryFile(null);
     setDirty(false);
     setConfirmDeleteCard(false);
     setConfirmDeleteDelivery(null);
@@ -96,19 +112,33 @@ export default function CardDrawer({
   }, [card?.id, open]);
 
   useEffect(() => {
+    if (!card) return;
+    const drafts = {};
+    for (const item of card.deliveryList || []) {
+      drafts[item.id] = {
+        status: item.feedback?.status || 'none',
+        note: item.feedback?.note || '',
+      };
+    }
+    setDeliveryFeedbackDrafts(drafts);
+  }, [card?.id, open, card?.deliveryList]);
+
+  useEffect(() => {
     if (tab === 'comments' && open) {
       const t = setTimeout(() => commentInputRef.current?.focus(), 120);
       return () => clearTimeout(t);
     }
   }, [tab, open]);
 
-  if (!card || !open || !edit) return null;
+  if (!card || !edit) return null;
 
   const deadline = getDeadlineInfo(card.dueDate);
   const files = card.fileList || [];
   const deliveries = card.deliveryList || [];
   const commentList = comments || [];
   const feedback = card.feedback || { status: 'none' };
+  const needsLiveLink = requiresLiveLink(card.stage);
+  const showLiveChip = isLiveLikeStage(card.stage) && card.liveUrl;
 
   function showErrors(title, errors, tone = 'error') {
     setAlert({ title, errors, tone });
@@ -190,38 +220,48 @@ export default function CardDrawer({
     e.target.value = '';
   }
 
-  async function handleDeliveryLinkSubmit(e) {
+  async function handleDeliverySubmit(e) {
     e.preventDefault();
-    if (deliveries.length >= MAX_DELIVERIES_PER_CARD) {
-      showErrors('Delivery limit', [`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`]);
-      return;
-    }
-    const result = validateDeliveryLink({ url: deliveryUrl, label: deliveryLabel });
+    const result = validateDelivery(
+      { description: deliveryDescription, url: deliveryUrl, file: deliveryFile },
+      deliveries,
+    );
     if (!result.ok) {
-      showErrors('Cannot add link', result.errors);
+      showErrors('Cannot add delivery', result.errors);
       return;
     }
-    const ok = await onAddDeliveryLink?.(card.id, {
+    const ok = await onAddDelivery?.(card.id, {
+      description: result.description,
       url: result.url,
-      label: result.label || result.url,
+      file: result.file,
     });
     if (ok) {
+      setDeliveryDescription('');
       setDeliveryUrl('');
-      setDeliveryLabel('');
+      setDeliveryFile(null);
+      if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
     }
   }
 
   function handleDeliveryFilePick(e) {
-    const picked = e.target.files;
-    const { ok, errors } = validateDeliveryFiles(picked, deliveries);
-    if (!ok.length) {
-      showErrors('Upload blocked', errors);
-      e.target.value = '';
+    const file = e.target.files?.[0] || null;
+    setDeliveryFile(file);
+  }
+
+  async function handleDeliveryFeedbackSave(deliveryId) {
+    const draft = deliveryFeedbackDrafts[deliveryId] || { status: 'none', note: '' };
+    const errors = validateDeliveryFeedback(draft);
+    if (errors.length) {
+      showErrors('Feedback incomplete', errors);
       return;
     }
-    if (errors.length) showErrors('Some files skipped', errors, 'warn');
-    if (ok.length) onUploadDeliveryFiles?.(card.id, ok);
-    e.target.value = '';
+    const ok = await onSaveDeliveryFeedback?.(card.id, deliveryId, {
+      status: draft.status,
+      note: String(draft.note || '').trim(),
+      updatedAt: new Date().toISOString(),
+      author: 'You',
+    });
+    if (ok) showErrors('Saved', ['Delivery feedback updated.'], 'success');
   }
 
   async function handleFeedbackSave(e) {
@@ -243,7 +283,7 @@ export default function CardDrawer({
 
   return (
     <>
-      <aside className="detail-panel open" aria-label="Card details">
+      <aside className={`detail-panel${open ? ' open' : ''}`} aria-label="Card details" aria-hidden={!open}>
         <header className="detail-header">
           <div className="detail-top">
             <div className="tag-row">
@@ -256,7 +296,7 @@ export default function CardDrawer({
                   {priorityLabel(edit.priority)}
                 </span>
               )}
-              {card.stage === 'live' && <span className="tag tag-live">Live</span>}
+              {isLiveLikeStage(card.stage) && <span className="tag tag-live">Live</span>}
             </div>
             <button type="button" className="plain-icon" aria-label="Close details" onClick={onClose}>
               <Icon id="i-close" />
@@ -268,7 +308,7 @@ export default function CardDrawer({
           {card.clientAgentName ? (
             <span className="detail-owner">Client of {card.clientAgentName}</span>
           ) : null}
-          {card.stage === 'live' && card.liveUrl ? (
+          {showLiveChip ? (
             <a className="live-link-chip" href={card.liveUrl} target="_blank" rel="noreferrer">
               <Icon id="i-link" /> Open live site
             </a>
@@ -384,7 +424,7 @@ export default function CardDrawer({
                 </div>
               )}
               <label>
-                Live link {card.stage === 'live' ? <span className="field-hint">(required)</span> : <span className="field-hint">(for Live / portfolio)</span>}
+                Live link {needsLiveLink ? <span className="field-hint">(required)</span> : <span className="field-hint">(for Live / portfolio)</span>}
                 <input
                   type="url"
                   value={edit.liveUrl}
@@ -532,14 +572,24 @@ export default function CardDrawer({
           {tab === 'delivery' && (
             <section className="detail-section">
               <p className="detail-hint">
-                Add a handoff link or upload a delivery file (max {MAX_DELIVERIES_PER_CARD}). Live site URL stays on Status.
+                Describe the handoff and/or add a link or file (max {MAX_DELIVERIES_PER_CARD}).
               </p>
 
-              <form className="delivery-compose" onSubmit={handleDeliveryLinkSubmit} noValidate>
-                <h3>Add link</h3>
+              <form className="delivery-compose" id="delivery-add-form" onSubmit={handleDeliverySubmit} noValidate>
+                <h3>Add delivery</h3>
+                <label>
+                  Description <span className="field-hint">(optional)</span>
+                  <textarea
+                    value={deliveryDescription}
+                    onChange={(e) => setDeliveryDescription(e.target.value)}
+                    placeholder="What was delivered? e.g. Homepage draft v2 ready for review"
+                    maxLength={1000}
+                    rows={3}
+                  />
+                </label>
                 <div className="form-row">
                   <label>
-                    URL
+                    Link <span className="field-hint">(optional)</span>
                     <input
                       type="url"
                       value={deliveryUrl}
@@ -549,89 +599,126 @@ export default function CardDrawer({
                     />
                   </label>
                   <label>
-                    Label <span className="field-hint">(optional)</span>
+                    File <span className="field-hint">(optional)</span>
                     <input
-                      value={deliveryLabel}
-                      onChange={(e) => setDeliveryLabel(e.target.value)}
-                      placeholder="Final draft / Figma / Drive folder"
-                      maxLength={120}
+                      ref={deliveryFileInputRef}
+                      type="file"
+                      onChange={handleDeliveryFilePick}
+                      accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
                     />
                   </label>
                 </div>
+                {deliveryFile ? (
+                  <p className="muted-hint">Selected: {deliveryFile.name} · {formatFileSize(deliveryFile.size || 0)}</p>
+                ) : null}
                 <button
                   type="submit"
                   className="primary-btn"
-                  disabled={!deliveryUrl.trim() || deliveries.length >= MAX_DELIVERIES_PER_CARD}
+                  disabled={
+                    deliveries.length >= MAX_DELIVERIES_PER_CARD
+                    || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
+                  }
                 >
-                  Add link
+                  Add delivery
                 </button>
               </form>
 
-              <div
-                className="upload-dropzone"
-                onClick={() => deliveryFileInputRef.current?.click()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') deliveryFileInputRef.current?.click();
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <Icon id="i-paperclip" />
-                <strong>Upload delivery file</strong>
-                <span>Max {MAX_DELIVERIES_PER_CARD} deliveries · 5 MB each · same types as Files</span>
-              </div>
-              <input
-                ref={deliveryFileInputRef}
-                type="file"
-                multiple
-                hidden
-                onChange={handleDeliveryFilePick}
-                accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
-              />
-
               {deliveries.length ? (
-                <ul className="file-list">
+                <ul className="delivery-list">
                   {deliveries.map((item) => {
-                    const isLink = item.kind === 'link';
-                    const title = item.label || item.name || item.url || 'Delivery';
-                    const href = item.url || null;
+                    const fb = item.feedback || { status: 'none', note: '' };
+                    const draft = deliveryFeedbackDrafts[item.id] || {
+                      status: fb.status || 'none',
+                      note: fb.note || '',
+                    };
+                    const linkHref = item.url || null;
+                    const fileHref = item.fileUrl || null;
                     return (
-                      <li key={item.id} className="file-row">
-                        <div className="file-icon">
-                          <Icon id={isLink ? 'i-link' : 'i-paperclip'} />
-                        </div>
-                        <div className="file-meta">
-                          <strong>{title}</strong>
-                          <span className={`delivery-kind-pill${isLink ? ' is-link' : ''}`}>
-                            {isLink ? 'Link' : 'File'}
-                          </span>
-                          {!isLink ? (
-                            <span>{formatFileSize(item.size || 0)}</span>
-                          ) : href ? (
-                            <span>{href}</span>
-                          ) : null}
-                        </div>
-                        <div className="file-actions">
-                          {href ? (
-                            <a
-                              className="tool-btn"
-                              href={href}
-                              download={isLink ? undefined : item.name}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open
-                            </a>
-                          ) : null}
+                      <li key={item.id} className="delivery-card">
+                        <div className="delivery-card-top">
+                          <p>{item.description || item.name || item.url || 'Delivery'}</p>
                           <button
                             type="button"
                             className="plain-icon"
-                            aria-label={`Remove ${title}`}
+                            aria-label="Remove delivery"
                             onClick={() => setConfirmDeleteDelivery(item)}
                           >
                             <Icon id="i-close" />
                           </button>
                         </div>
+
+                        <div className="delivery-assets">
+                          {linkHref ? (
+                            <a className="tool-btn" href={linkHref} target="_blank" rel="noreferrer">
+                              <Icon id="i-link" /> Open link
+                            </a>
+                          ) : null}
+                          {fileHref ? (
+                            <a
+                              className="tool-btn"
+                              href={fileHref}
+                              download={item.name || undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <Icon id="i-paperclip" /> {item.name || 'Open file'}
+                            </a>
+                          ) : item.name ? (
+                            <span className="delivery-kind-pill">{item.name}</span>
+                          ) : null}
+                          {!linkHref && !fileHref && !item.name ? (
+                            <span className="delivery-kind-pill">Note only</span>
+                          ) : null}
+                        </div>
+
+                        {canReviewDelivery ? (
+                          <div className="delivery-feedback">
+                            <label>
+                              Admin feedback
+                              <FancySelect
+                                fullWidth
+                                value={draft.status}
+                                onChange={(status) => setDeliveryFeedbackDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: { ...draft, status },
+                                }))}
+                                options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
+                              />
+                            </label>
+                            <label>
+                              Note
+                              <textarea
+                                value={draft.note}
+                                onChange={(e) => setDeliveryFeedbackDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: { ...draft, note: e.target.value },
+                                }))}
+                                placeholder="Feedback for this delivery…"
+                                maxLength={1000}
+                                rows={2}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="primary-btn"
+                              onClick={() => handleDeliveryFeedbackSave(item.id)}
+                            >
+                              Save feedback
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="delivery-feedback-readonly">
+                            <span className={`delivery-kind-pill ${deliveryFeedbackPillClass(fb.status)}`}>
+                              {deliveryFeedbackLabel(fb.status)}
+                            </span>
+                            {fb.note ? <strong>{fb.note}</strong> : null}
+                            {fb.updatedAt ? (
+                              <span className="muted-hint">
+                                {fb.author || 'Admin'} · {new Date(fb.updatedAt).toLocaleString()}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </li>
                     );
                   })}
@@ -758,12 +845,15 @@ export default function CardDrawer({
           )}
           {tab === 'delivery' && (
             <button
-              type="button"
+              type="submit"
+              form="delivery-add-form"
               className="primary-btn detail-save-btn"
-              onClick={() => deliveryFileInputRef.current?.click()}
-              disabled={deliveries.length >= MAX_DELIVERIES_PER_CARD}
+              disabled={
+                deliveries.length >= MAX_DELIVERIES_PER_CARD
+                || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFile)
+              }
             >
-              Upload delivery file
+              Add delivery
             </button>
           )}
           {tab === 'feedback' && (
@@ -803,7 +893,7 @@ export default function CardDrawer({
         title="Remove delivery?"
         message={
           confirmDeleteDelivery
-            ? `"${confirmDeleteDelivery.label || confirmDeleteDelivery.name || confirmDeleteDelivery.url}" will be removed.`
+            ? `"${String(confirmDeleteDelivery.description || 'Delivery').slice(0, 80)}" will be removed.`
             : ''
         }
         tone="warn"

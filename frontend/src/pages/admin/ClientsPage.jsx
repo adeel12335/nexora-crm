@@ -10,6 +10,7 @@ import FancySelect from '../../components/filters/FancySelect.jsx';
 import { DayFilter } from '../../components/filters/MonthFilter.jsx';
 import { Icon } from '../../icons/IconSprite.jsx';
 import { productionStages } from '../../data/mockData.js';
+import { requiresLiveLink } from '../../data/productionStages.js';
 import {
   PRIORITY_OPTIONS,
   formatFileSize,
@@ -66,7 +67,7 @@ function blankPushForm(client, assignees) {
     title: client ? `${client.name} — New draft` : '',
     description: '',
     type: 'draft',
-    stage: 'new_draft',
+    stage: productionStages[0]?.id || 'new_project_create_draft',
     assigneeId: productionUser
       ? String(productionUser.id)
       : (assignees[0] ? String(assignees[0].id) : ''),
@@ -1025,7 +1026,7 @@ export default function ClientsPage() {
             </div>
 
             <label className="checkin-emails-label">
-              Live link {pushForm.stage === 'live' ? '(required for Live)' : '(optional)'}
+              Live link {requiresLiveLink(pushForm.stage) ? '(required for Live)' : '(optional)'}
               <input
                 type="url"
                 value={pushForm.liveUrl}

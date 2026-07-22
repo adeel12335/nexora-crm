@@ -215,6 +215,17 @@ export async function notifyDeadline({
 }
 
 const STAGE_LABELS = {
+  new_project_create_draft: 'New Project / Create Draft',
+  page_expansion: 'Page Expansion',
+  draft_done: 'Draft Done',
+  draft_revisions: 'Draft Revisions / Comments',
+  pending_approval: 'Pending for Approval',
+  push_to_live: 'Push Page to Live',
+  page_live: 'Page Live',
+  edits_after_publishing: 'Edits After Publishing',
+  pages_to_relive: 'Pages to Re-live',
+  stopped_process: 'Stopped Process',
+  // legacy
   new_draft: 'New Draft',
   in_progress: 'In Progress',
   revision: 'Revision',

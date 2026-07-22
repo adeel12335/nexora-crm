@@ -1,4 +1,11 @@
 import { computeDueDate } from '../utils/deadlineUtils.js';
+export {
+  productionStages,
+  normalizeProductionStage,
+  requiresLiveLink,
+  isLiveLikeStage,
+  stageTitle,
+} from './productionStages.js';
 
 export const avatarPool = [
   '/assets/avatar-jane.svg',
@@ -22,15 +29,6 @@ export const agents = [
 export function findAgentForUser(user) {
   return agents.find((a) => a.email === user?.email) || agents[0];
 }
-
-export const productionStages = [
-  { id: 'new_draft', title: 'New Draft', color: '#6A9FB5' },
-  { id: 'in_progress', title: 'In Progress', color: '#07524D' },
-  { id: 'revision', title: 'Revision', color: '#D8A74C' },
-  { id: 'review', title: 'Review', color: '#C65A79' },
-  { id: 'live', title: 'Live', color: '#2F6FED' },
-  { id: 'done', title: 'Done', color: '#A2A2A0' },
-];
 
 function daysAgo(n) {
   const d = new Date();

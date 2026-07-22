@@ -1,3 +1,5 @@
+import { requiresLiveLink } from '../data/productionStages.js';
+
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_FILES_PER_CARD = 10;
@@ -7,7 +9,7 @@ const MAX_CLIENT = 80;
 const MAX_DESCRIPTION = 2000;
 const MAX_COMMENT = 1000;
 const MAX_FEEDBACK = 1000;
-const MAX_DELIVERY_LABEL = 120;
+const MAX_DELIVERY_DESCRIPTION = 1000;
 
 const ALLOWED_EXT = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp',
@@ -77,8 +79,8 @@ export function validateCardForm(form, { allowPastDue = false, requireCrmClient 
   }
 
   const liveUrl = String(form.liveUrl || '').trim();
-  if (form.stage === 'live') {
-    if (!liveUrl) errors.push('Live link is required when the card is Live');
+  if (requiresLiveLink(form.stage)) {
+    if (!liveUrl) errors.push('Live link is required for this stage');
     else if (!/^https?:\/\/.+/i.test(liveUrl.startsWith('http') ? liveUrl : `https://${liveUrl}`)) {
       errors.push('Enter a valid live link (https://…)');
     }
@@ -195,81 +197,80 @@ export function normalizeDeliveryUrl(raw) {
   return url;
 }
 
-export function validateDeliveryLink({ url, label } = {}) {
+export function validateDelivery({ description, url, file } = {}, existingDeliveries = []) {
   const errors = [];
-  const normalized = normalizeDeliveryUrl(url);
-  if (!normalized) errors.push('Delivery link is required');
-  else if (!/^https?:\/\/.+/i.test(normalized)) errors.push('Enter a valid link (https://…)');
+  const existing = Array.isArray(existingDeliveries) ? existingDeliveries : [];
 
-  const cleanedLabel = String(label || '').trim();
-  if (cleanedLabel.length > MAX_DELIVERY_LABEL) {
-    errors.push(`Label cannot exceed ${MAX_DELIVERY_LABEL} characters`);
+  if (existing.length >= MAX_DELIVERIES_PER_CARD) {
+    return {
+      ok: false,
+      errors: [`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`],
+      description: '',
+      url: null,
+      file: null,
+    };
+  }
+
+  const desc = String(description || '').trim();
+  if (desc && desc.length < 3) errors.push('Description must be at least 3 characters when provided');
+  else if (desc.length > MAX_DELIVERY_DESCRIPTION) {
+    errors.push(`Description cannot exceed ${MAX_DELIVERY_DESCRIPTION} characters`);
+  }
+
+  let normalizedUrl = null;
+  const rawUrl = String(url || '').trim();
+  if (rawUrl) {
+    normalizedUrl = normalizeDeliveryUrl(rawUrl);
+    if (!/^https?:\/\/.+/i.test(normalizedUrl)) {
+      errors.push('Enter a valid link (https://…)');
+      normalizedUrl = null;
+    }
+  }
+
+  let okFile = null;
+  if (file) {
+    const ext = extOf(file.name);
+    if (!ALLOWED_EXT.has(ext)) errors.push(`"${file.name}" type is not allowed`);
+    else if (file.size <= 0) errors.push(`"${file.name}" is empty`);
+    else if (file.size > MAX_FILE_BYTES) errors.push(`"${file.name}" exceeds 5 MB`);
+    else {
+      const existingBytes = existing
+        .filter((d) => d?.fileUrl || d?.name)
+        .reduce((sum, d) => sum + Number(d.size || 0), 0);
+      if (existingBytes + file.size > MAX_TOTAL_FILE_BYTES) {
+        errors.push(`Delivery files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
+      } else {
+        okFile = file;
+      }
+    }
+  }
+
+  if (!desc && !normalizedUrl && !okFile && !file) {
+    errors.push('Add a description, link, or file');
   }
 
   return {
     ok: errors.length === 0,
     errors,
-    url: normalized,
-    label: cleanedLabel,
+    description: desc,
+    url: normalizedUrl,
+    file: okFile,
   };
 }
 
-/**
- * Validate delivery file uploads. Caps against max deliveries and shared byte budget for file-kind items.
- */
-export function validateDeliveryFiles(fileList, existingDeliveries = []) {
-  const files = Array.from(fileList || []);
-  if (!files.length) return { ok: [], errors: ['Choose at least one file'] };
-
-  const existing = Array.isArray(existingDeliveries) ? existingDeliveries : [];
-  const slots = Math.max(0, MAX_DELIVERIES_PER_CARD - existing.length);
-  if (slots === 0) {
-    return { ok: [], errors: [`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`] };
-  }
-
-  const existingBytes = existing
-    .filter((d) => d?.kind === 'file')
-    .reduce((sum, d) => sum + Number(d.size || 0), 0);
-
+export function validateDeliveryFeedback({ status, note } = {}) {
   const errors = [];
-  let overCap = false;
-  if (files.length > slots) {
-    errors.push(`Only ${slots} more deliver${slots === 1 ? 'y' : 'ies'} allowed (max ${MAX_DELIVERIES_PER_CARD})`);
-    overCap = true;
+  if (!FEEDBACK_STATUS.some((s) => s.value === status)) {
+    errors.push('Pick a valid feedback status');
   }
-
-  const ok = [];
-  let runningBytes = existingBytes;
-
-  for (const file of files) {
-    if (ok.length >= slots) break;
-
-    const ext = extOf(file.name);
-    if (!ALLOWED_EXT.has(ext)) {
-      errors.push(`"${file.name}" type is not allowed`);
-      continue;
-    }
-    if (file.size <= 0) {
-      errors.push(`"${file.name}" is empty`);
-      continue;
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      errors.push(`"${file.name}" exceeds 5 MB`);
-      continue;
-    }
-    if (runningBytes + file.size > MAX_TOTAL_FILE_BYTES) {
-      errors.push(`Delivery files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`);
-      break;
-    }
-    ok.push(file);
-    runningBytes += file.size;
+  const cleaned = String(note || '').trim();
+  if ((status === 'approved' || status === 'changes_requested') && !cleaned) {
+    errors.push('Add a note when approving or requesting changes');
   }
-
-  if (overCap && ok.length) {
-    // already noted — ok is truncated to slots
+  if (cleaned.length > MAX_FEEDBACK) {
+    errors.push(`Feedback cannot exceed ${MAX_FEEDBACK} characters`);
   }
-
-  return { ok, errors };
+  return errors;
 }
 
 export function formatFileSize(bytes) {

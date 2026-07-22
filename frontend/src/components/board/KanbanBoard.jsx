@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
-import FancySelect from '../filters/FancySelect.jsx';
 import KanbanColumn from './KanbanColumn.jsx';
 import CardDrawer from './CardDrawer.jsx';
 import NewCardModal from './NewCardModal.jsx';
 import { avatarPool, productionStages } from '../../data/mockData.js';
+import { requiresLiveLink, isLiveLikeStage, normalizeProductionStage } from '../../data/productionStages.js';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
-import { isHighPriority, validateFiles, MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, validateDeliveryFiles } from '../../utils/boardValidation.js';
+import { isHighPriority, validateFiles, MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD } from '../../utils/boardValidation.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
@@ -25,6 +25,7 @@ function toAssignee(user) {
 function hydrateCard(card) {
   return {
     ...card,
+    stage: normalizeProductionStage(card.stage),
     priority: card.priority === true ? 'high' : (card.priority || 'none'),
     liveUrl: card.liveUrl || '',
     clientId: card.clientId ?? null,
@@ -69,8 +70,8 @@ export default function KanbanBoard() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalStage, setModalStage] = useState('new_draft');
-  const [mobileStage, setMobileStage] = useState(productionStages[0].id);
+  const [modalStage, setModalStage] = useState(productionStages[0].id);
+  const [activeStage, setActiveStage] = useState(productionStages[0].id);
   const [activityByCard, setActivityByCard] = useState({});
 
   const loadCards = useCallback(async () => {
@@ -170,9 +171,9 @@ export default function KanbanBoard() {
       if (card.stage !== stageId) return false;
       if (q && !`${card.title} ${card.client}`.toLowerCase().includes(q)) return false;
       if (filter === 'priority') return isHighPriority(card.priority) || card.priority === 'medium';
-      if (filter === 'revision') return card.type === 'revision';
+      if (filter === 'revision') return card.stage === 'draft_revisions' || card.type === 'revision';
       if (filter === 'overdue') return getDeadlineInfo(card.dueDate).tone === 'overdue';
-      if (filter === 'live') return card.stage === 'live';
+      if (filter === 'live') return isLiveLikeStage(card.stage);
       if (filter === 'feedback') return card.feedback?.status && card.feedback.status !== 'none';
       return true;
     });
@@ -181,6 +182,8 @@ export default function KanbanBoard() {
   function handleSelect(id) {
     setSelectedId(id);
     setDrawerOpen(true);
+    const card = cards.find((c) => c.id === id);
+    if (card?.stage) setActiveStage(normalizeProductionStage(card.stage));
     // Hydrate full card (file data URLs) in background after light list load.
     api.getProductionCard(token, id)
       .then((data) => {
@@ -200,18 +203,20 @@ export default function KanbanBoard() {
 
   async function moveCard(cardId, stageId) {
     const card = cards.find((item) => item.id === cardId);
-    if (!card || card.stage === stageId) return;
+    const targetStage = normalizeProductionStage(stageId);
+    if (!card || card.stage === targetStage) return;
 
-    if (stageId === 'live' && !hasLiveLink(card)) {
-      showToast('Add the live link on the card first, then move to Live');
+    if (requiresLiveLink(targetStage) && !hasLiveLink(card)) {
+      showToast('Add the live link on the card first, then move to this stage');
       handleSelect(cardId);
       return;
     }
 
     const fromTitle = productionStages.find((stage) => stage.id === card.stage)?.title;
-    const toTitle = productionStages.find((stage) => stage.id === stageId)?.title;
+    const toTitle = productionStages.find((stage) => stage.id === targetStage)?.title;
     try {
-      await persistCard(cardId, { stage: stageId });
+      await persistCard(cardId, { stage: targetStage });
+      setActiveStage(targetStage);
       pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
       showToast(`Moved "${card.title}" → ${toTitle}`);
     } catch (err) {
@@ -380,7 +385,7 @@ export default function KanbanBoard() {
     }
   }
 
-  async function handleAddDeliveryLink(cardId, { url, label }) {
+  async function handleAddDelivery(cardId, { description, url, file }) {
     const card = cards.find((c) => c.id === cardId);
     if (!card) return false;
     const existing = card.deliveryList || [];
@@ -388,51 +393,71 @@ export default function KanbanBoard() {
       showToast(`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`);
       return false;
     }
-    const entry = {
-      id: nextFileId++,
-      kind: 'link',
-      label: label || url,
-      url,
-      createdAt: new Date().toISOString(),
-    };
+
     try {
-      await persistCard(cardId, { deliveryList: [entry, ...existing].slice(0, MAX_DELIVERIES_PER_CARD) });
-      pushActivity(cardId, 'added a delivery link');
-      showToast('Delivery link added');
+      let fileFields = {
+        name: null,
+        size: null,
+        type: null,
+        fileUrl: null,
+      };
+      if (file) {
+        fileFields = {
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          fileUrl: await readFileAsDataUrl(file),
+        };
+      }
+
+      const entry = {
+        id: nextFileId++,
+        description,
+        url: url || null,
+        ...fileFields,
+        createdAt: new Date().toISOString(),
+        createdBy: user
+          ? { id: user.id, name: user.name, role: user.role }
+          : null,
+        feedback: { status: 'none', note: '', updatedAt: null, author: null },
+      };
+
+      await persistCard(cardId, {
+        deliveryList: [entry, ...existing].slice(0, MAX_DELIVERIES_PER_CARD),
+      });
+      pushActivity(cardId, 'added a delivery');
+      showToast('Delivery added');
       return true;
     } catch (err) {
-      showToast(err.message || 'Could not add delivery link');
+      showToast(err.message || 'Could not add delivery');
       return false;
     }
   }
 
-  async function handleUploadDeliveryFiles(cardId, files) {
+  async function handleSaveDeliveryFeedback(cardId, deliveryId, feedback) {
     const card = cards.find((c) => c.id === cardId);
-    if (!card) return;
-    const existing = card.deliveryList || [];
-    const { ok, errors } = validateDeliveryFiles(files, existing);
-    if (!ok.length) {
-      showToast(errors[0] || 'Upload blocked');
-      return;
-    }
-    if (errors.length) showToast(errors[0]);
+    if (!card) return false;
+    const deliveryList = (card.deliveryList || []).map((item) => (
+      Number(item.id) === Number(deliveryId) || String(item.id) === String(deliveryId)
+        ? {
+            ...item,
+            feedback: {
+              status: feedback.status,
+              note: feedback.note || '',
+              updatedAt: feedback.updatedAt || new Date().toISOString(),
+              author: feedback.author || user?.name || 'Admin',
+            },
+          }
+        : item
+    ));
     try {
-      const uploaded = await Promise.all(ok.map(async (file) => ({
-        id: nextFileId++,
-        kind: 'file',
-        label: file.name,
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        url: await readFileAsDataUrl(file),
-        createdAt: new Date().toISOString(),
-      })));
-      const deliveryList = [...uploaded, ...existing].slice(0, MAX_DELIVERIES_PER_CARD);
       await persistCard(cardId, { deliveryList });
-      pushActivity(cardId, `added ${uploaded.length} delivery file${uploaded.length > 1 ? 's' : ''}`);
-      showToast(`${uploaded.length} delivery file${uploaded.length > 1 ? 's' : ''} added`);
+      pushActivity(cardId, `reviewed a delivery (${feedback.status.replaceAll('_', ' ')})`);
+      showToast('Delivery feedback saved');
+      return true;
     } catch (err) {
-      showToast(err.message || 'Delivery upload failed');
+      showToast(err.message || 'Could not save delivery feedback');
+      return false;
     }
   }
 
@@ -443,12 +468,7 @@ export default function KanbanBoard() {
     const deliveryList = (card.deliveryList || []).filter((d) => d.id !== deliveryId);
     try {
       await persistCard(cardId, { deliveryList });
-      if (removed) {
-        pushActivity(
-          cardId,
-          removed.kind === 'link' ? 'removed a delivery link' : `removed delivery ${removed.label || removed.name}`,
-        );
-      }
+      if (removed) pushActivity(cardId, 'removed a delivery');
       showToast('Delivery removed');
     } catch (err) {
       showToast(err.message || 'Could not remove delivery');
@@ -497,7 +517,7 @@ export default function KanbanBoard() {
             <Icon id="i-filter" /><span>Filter</span>
           </button>
           {canCreateCards ? (
-            <button type="button" className="primary-btn" onClick={() => handleAddCard('new_draft')}>
+            <button type="button" className="primary-btn" onClick={() => handleAddCard(activeStage || productionStages[0].id)}>
               New Card <Icon id="i-plus" />
             </button>
           ) : null}
@@ -516,35 +536,43 @@ export default function KanbanBoard() {
         </div>
       )}
 
-      <label className="mobile-stage-picker">
-        Production stage
-        <FancySelect
-          fullWidth
-          value={mobileStage}
-          onChange={setMobileStage}
-          options={productionStages.map((stage) => ({
-            value: stage.id,
-            label: `${stage.title} (${visibleCards(stage.id).length})`,
-          }))}
-        />
-      </label>
+      <nav className="board-stage-tabs" aria-label="Production stages">
+        {productionStages.map((stage) => {
+          const count = visibleCards(stage.id).length;
+          return (
+            <button
+              key={stage.id}
+              type="button"
+              className={`board-stage-tab${activeStage === stage.id ? ' active' : ''}`}
+              style={{ '--stage': stage.color }}
+              onClick={() => setActiveStage(stage.id)}
+            >
+              <span className="board-stage-tab-title">{stage.title}</span>
+              <span className="board-stage-tab-count">{count}</span>
+            </button>
+          );
+        })}
+      </nav>
 
-      <div className="kanban kanban-six">
-        {productionStages.map((stage) => (
-          <KanbanColumn
-            key={stage.id}
-            stage={stage}
-            cards={visibleCards(stage.id)}
-            selectedId={selectedId}
-            draggingId={draggingId}
-            onSelect={handleSelect}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDrop={handleDrop}
-            onAddCard={canCreateCards ? handleAddCard : null}
-            mobileActive={stage.id === mobileStage}
-          />
-        ))}
+      <div className="board-stage-panel">
+        {(() => {
+          const stage = productionStages.find((s) => s.id === activeStage) || productionStages[0];
+          return (
+            <KanbanColumn
+              key={stage.id}
+              stage={stage}
+              cards={visibleCards(stage.id)}
+              selectedId={selectedId}
+              draggingId={draggingId}
+              onSelect={handleSelect}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDrop={handleDrop}
+              onAddCard={canCreateCards ? handleAddCard : null}
+              mobileActive
+            />
+          );
+        })()}
       </div>
 
       <CardDrawer
@@ -560,16 +588,21 @@ export default function KanbanBoard() {
         canEditMeta={canEditCardMeta}
         onUploadFiles={handleUploadFiles}
         onRemoveFile={handleRemoveFile}
-        onAddDeliveryLink={handleAddDeliveryLink}
-        onUploadDeliveryFiles={handleUploadDeliveryFiles}
+        onAddDelivery={handleAddDelivery}
+        onSaveDeliveryFeedback={handleSaveDeliveryFeedback}
         onRemoveDelivery={handleRemoveDelivery}
+        canReviewDelivery={isAdmin}
         onSaveFeedback={handleSaveFeedback}
         stages={productionStages}
         assignees={assignees}
         crmClients={crmClients}
         onMove={(stageId) => selectedCard && moveCard(selectedCard.id, stageId)}
       />
-      {drawerOpen && <div className="scrim visible" onClick={() => setDrawerOpen(false)} />}
+      <div
+        className={`scrim${drawerOpen ? ' visible' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden={!drawerOpen}
+      />
 
       {canCreateCards ? (
         <NewCardModal

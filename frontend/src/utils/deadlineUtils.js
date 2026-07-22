@@ -23,6 +23,6 @@ export function getDeadlineInfo(dueDate, now = new Date()) {
 }
 
 export function needsDeadlineAlert(card, now = new Date()) {
-  if (card.stage === 'done') return false;
+  if (card.stage === 'done' || card.stage === 'live' || card.stage === 'page_live' || card.stage === 'stopped_process' || card.stage === 'pages_to_relive') return false;
   return getDeadlineInfo(card.dueDate, now).tone !== 'ok';
 }
