@@ -312,23 +312,69 @@ export async function getClient(req, res) {
     [req.params.id]
   );
 
+  const [[agentInfo]] = await pool.query(
+    `SELECT u.id AS agent_id, u.name AS agent_name, u.manager_id,
+            m.name AS manager_name
+     FROM users u
+     LEFT JOIN users m ON m.id = u.manager_id
+     WHERE u.id = ?`,
+    [row.agent_id]
+  );
+
+  const postedPaymentIds = new Set(commissions.map((ce) => Number(ce.payment_id)));
+  const posted = commissions.map((ce) => ({
+    id: ce.id,
+    paymentId: ce.payment_id,
+    userId: ce.user_id,
+    userName: ce.user_name,
+    earnerRole: ce.earner_role,
+    ratePercentage: money(ce.rate_percentage),
+    paymentAmount: money(ce.payment_amount),
+    commissionAmount: money(ce.commission_amount),
+    cycleStart: ce.cycle_start,
+    cycleEnd: ce.cycle_end,
+    createdAt: ce.created_at,
+    status: 'posted',
+  }));
+
+  // Unposted payments: estimate using rates for that payment's month (e.g. May pay → May rates).
+  const estimated = [];
+  for (const p of payments) {
+    if (postedPaymentIds.has(Number(p.id))) continue;
+    const paymentDate = String(p.payment_date).slice(0, 10);
+    const amount = money(p.amount);
+    const preview = await previewCommissionForPayment({
+      clientId: row.id,
+      agentId: row.agent_id,
+      managerId: agentInfo?.manager_id || null,
+      amount,
+      paymentDate,
+    });
+    for (const line of preview.preview) {
+      const isAgent = line.role === 'agent';
+      estimated.push({
+        id: `est-${p.id}-${line.role}`,
+        paymentId: p.id,
+        userId: line.userId,
+        userName: isAgent ? agentInfo?.agent_name || null : agentInfo?.manager_name || null,
+        earnerRole: line.role,
+        ratePercentage: money(line.rate),
+        paymentAmount: amount,
+        commissionAmount: money(line.amount),
+        cycleStart: preview.cycleStart,
+        cycleEnd: preview.cycleEnd,
+        createdAt: null,
+        paymentDate,
+        status: 'estimated',
+      });
+    }
+  }
+
   const includeSensitive = role === 'admin';
   res.json({
     client: toClient(row, { role }),
     payments: payments.map((p) => toPayment(p, { includeSensitive })),
-    commissions: commissions.map((ce) => ({
-      id: ce.id,
-      paymentId: ce.payment_id,
-      userId: ce.user_id,
-      userName: ce.user_name,
-      earnerRole: ce.earner_role,
-      ratePercentage: money(ce.rate_percentage),
-      paymentAmount: money(ce.payment_amount),
-      commissionAmount: money(ce.commission_amount),
-      cycleStart: ce.cycle_start,
-      cycleEnd: ce.cycle_end,
-      createdAt: ce.created_at,
-    })),
+    commissions: [...posted, ...estimated],
   });
 }
 

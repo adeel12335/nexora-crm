@@ -645,7 +645,7 @@ export default function ClientsPage() {
             <p>
               {isAdmin
                 ? 'Record partial payments here — then Post commission on the Commissions page'
-                : 'Your clients and partial payments (read-only). Commission shows after admin posts it.'}
+                : 'Your clients and partial payments (read-only). Commission is estimated from each payment date’s rates until admin posts it.'}
             </p>
           </div>
           <TableToolbar
@@ -896,6 +896,7 @@ export default function ClientsPage() {
                         <th>Rate</th>
                         <th>Commission</th>
                         <th>Cycle</th>
+                        <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -906,10 +907,11 @@ export default function ClientsPage() {
                           <td>{ce.ratePercentage}%</td>
                           <td>{money(ce.commissionAmount)}</td>
                           <td>{ce.cycleStart} → {ce.cycleEnd}</td>
+                          <td>{ce.status === 'estimated' ? 'Estimated' : 'Posted'}</td>
                         </tr>
                       ))}
                       {!commissions.length && (
-                        <tr><td colSpan={5}><div className="empty-state">No commission yet</div></td></tr>
+                        <tr><td colSpan={6}><div className="empty-state">No commission yet</div></td></tr>
                       )}
                     </tbody>
                   </table>
