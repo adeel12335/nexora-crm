@@ -11,6 +11,11 @@
 .tool-btn { display:flex; align-items:center; justify-content:center; gap:7px; }
 .tool-btn svg { width:16px; }
 .tool-btn:hover,.secondary-btn:hover { border-color:var(--border-strong); }
+.tool-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent-active);
+  background: color-mix(in srgb, var(--accent-soft) 42%, white);
+}
 .primary-btn { border-color:transparent; display:inline-flex; align-items:center; justify-content:center; gap:7px; color:white; background:linear-gradient(145deg,var(--accent),var(--accent-2)); box-shadow:0 8px 20px rgba(198,90,121,.25); }
 .primary-btn:hover:not(:disabled) { transform:translateY(-1px); background:linear-gradient(145deg,var(--accent-2),var(--accent-active)); }
 .primary-btn:disabled { opacity:.55; cursor:not-allowed; box-shadow:none; }
@@ -18,6 +23,26 @@
 .filter-strip { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
 .filter-strip button { min-height:40px; border:1px solid var(--border); padding:7px 12px; border-radius:9px; background:transparent; color:var(--muted); font-size:13px; cursor:pointer; }
 .filter-strip button.active { border-color:var(--accent); color:var(--accent-active); background:color-mix(in srgb,var(--accent-soft) 42%,white); }
+
+.board-filter-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.board-filter-panel .filter-strip {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.board-filter-panel .board-stage-tabs {
+  padding: 2px 0 0;
+  margin: 0;
+}
 
 .board-stage-tabs {
   display: flex;

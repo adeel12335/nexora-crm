@@ -71,7 +71,7 @@ export default function KanbanBoard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStage, setModalStage] = useState(productionStages[0].id);
-  const [activeStage, setActiveStage] = useState(productionStages[0].id);
+  const [activeStage, setActiveStage] = useState('all');
   const [activityByCard, setActivityByCard] = useState({});
 
   const loadCards = useCallback(async () => {
@@ -168,7 +168,7 @@ export default function KanbanBoard() {
   function visibleCards(stageId) {
     const q = query.toLowerCase().trim();
     return cards.filter((card) => {
-      if (card.stage !== stageId) return false;
+      if (stageId !== 'all' && card.stage !== stageId) return false;
       if (q && !`${card.title} ${card.client}`.toLowerCase().includes(q)) return false;
       if (filter === 'priority') return isHighPriority(card.priority) || card.priority === 'medium';
       if (filter === 'revision') return card.stage === 'draft_revisions' || card.type === 'revision';
@@ -182,8 +182,6 @@ export default function KanbanBoard() {
   function handleSelect(id) {
     setSelectedId(id);
     setDrawerOpen(true);
-    const card = cards.find((c) => c.id === id);
-    if (card?.stage) setActiveStage(normalizeProductionStage(card.stage));
     // Hydrate full card (file data URLs) in background after light list load.
     api.getProductionCard(token, id)
       .then((data) => {
@@ -216,7 +214,7 @@ export default function KanbanBoard() {
     const toTitle = productionStages.find((stage) => stage.id === targetStage)?.title;
     try {
       await persistCard(cardId, { stage: targetStage });
-      setActiveStage(targetStage);
+      if (activeStage !== 'all') setActiveStage(targetStage);
       pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
       showToast(`Moved "${card.title}" → ${toTitle}`);
     } catch (err) {
@@ -226,6 +224,10 @@ export default function KanbanBoard() {
 
   function handleDrop(stageId) {
     if (draggingId == null) return;
+    if (stageId === 'all') {
+      setDraggingId(null);
+      return;
+    }
     moveCard(draggingId, stageId);
     setDraggingId(null);
   }
@@ -235,7 +237,8 @@ export default function KanbanBoard() {
       showToast('Only admin can create production cards');
       return;
     }
-    setModalStage(stageId);
+    const nextStage = stageId === 'all' ? productionStages[0].id : stageId;
+    setModalStage(nextStage);
     setModalOpen(true);
   }
 
@@ -501,6 +504,18 @@ export default function KanbanBoard() {
     { id: 'overdue', label: 'Overdue' },
   ]), []);
 
+  const stageTabItems = useMemo(() => ([
+    { id: 'all', title: 'All', color: '#07524D' },
+    ...productionStages,
+  ]), []);
+
+  const panelStage = useMemo(() => {
+    if (activeStage === 'all') {
+      return { id: 'all', title: 'All cards', color: '#07524D' };
+    }
+    return productionStages.find((s) => s.id === activeStage) || productionStages[0];
+  }, [activeStage]);
+
   return (
     <section className="board-section">
       <div className="board-heading-row">
@@ -513,11 +528,16 @@ export default function KanbanBoard() {
             <Icon id="i-search" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} type="search" placeholder="Search cards..." />
           </label>
-          <button type="button" className="tool-btn" onClick={() => setFilterOpen((v) => !v)}>
+          <button
+            type="button"
+            className={`tool-btn${filterOpen ? ' is-active' : ''}`}
+            onClick={() => setFilterOpen((v) => !v)}
+            aria-expanded={filterOpen}
+          >
             <Icon id="i-filter" /><span>Filter</span>
           </button>
           {canCreateCards ? (
-            <button type="button" className="primary-btn" onClick={() => handleAddCard(activeStage || productionStages[0].id)}>
+            <button type="button" className="primary-btn" onClick={() => handleAddCard(activeStage)}>
               New Card <Icon id="i-plus" />
             </button>
           ) : null}
@@ -526,53 +546,50 @@ export default function KanbanBoard() {
 
       {loading ? <p className="commission-note">Loading board…</p> : null}
 
-      {filterOpen && (
-        <div className="filter-strip">
-          {filters.map((f) => (
-            <button key={f.id} type="button" className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {filterOpen ? (
+        <div className="board-filter-panel">
+          <div className="filter-strip">
+            {filters.map((f) => (
+              <button key={f.id} type="button" className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>
+                {f.label}
+              </button>
+            ))}
+          </div>
 
-      <nav className="board-stage-tabs" aria-label="Production stages">
-        {productionStages.map((stage) => {
-          const count = visibleCards(stage.id).length;
-          return (
-            <button
-              key={stage.id}
-              type="button"
-              className={`board-stage-tab${activeStage === stage.id ? ' active' : ''}`}
-              style={{ '--stage': stage.color }}
-              onClick={() => setActiveStage(stage.id)}
-            >
-              <span className="board-stage-tab-title">{stage.title}</span>
-              <span className="board-stage-tab-count">{count}</span>
-            </button>
-          );
-        })}
-      </nav>
+          <nav className="board-stage-tabs" aria-label="Production stages">
+            {stageTabItems.map((stage) => {
+              const count = visibleCards(stage.id).length;
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  className={`board-stage-tab${activeStage === stage.id ? ' active' : ''}`}
+                  style={{ '--stage': stage.color }}
+                  onClick={() => setActiveStage(stage.id)}
+                >
+                  <span className="board-stage-tab-title">{stage.title}</span>
+                  <span className="board-stage-tab-count">{count}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      ) : null}
 
       <div className="board-stage-panel">
-        {(() => {
-          const stage = productionStages.find((s) => s.id === activeStage) || productionStages[0];
-          return (
-            <KanbanColumn
-              key={stage.id}
-              stage={stage}
-              cards={visibleCards(stage.id)}
-              selectedId={selectedId}
-              draggingId={draggingId}
-              onSelect={handleSelect}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-              onDrop={handleDrop}
-              onAddCard={canCreateCards ? handleAddCard : null}
-              mobileActive
-            />
-          );
-        })()}
+        <KanbanColumn
+          key={panelStage.id}
+          stage={panelStage}
+          cards={visibleCards(activeStage)}
+          selectedId={selectedId}
+          draggingId={draggingId}
+          onSelect={handleSelect}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDrop={handleDrop}
+          onAddCard={canCreateCards ? handleAddCard : null}
+          mobileActive
+        />
       </div>
 
       <CardDrawer
