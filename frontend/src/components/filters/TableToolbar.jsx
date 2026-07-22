@@ -21,6 +21,10 @@ export default function TableToolbar({
   secondaryStatus,
   onSecondaryStatus,
   secondaryStatusPlaceholder = 'All statuses',
+  tertiaryStatusOptions,
+  tertiaryStatus,
+  onTertiaryStatus,
+  tertiaryStatusPlaceholder = 'All statuses',
   dateFrom,
   dateTo,
   onDateFrom,
@@ -38,6 +42,7 @@ export default function TableToolbar({
     : [];
   const showStatus = Array.isArray(statusOptions) && onStatus;
   const showSecondaryStatus = Array.isArray(secondaryStatusOptions) && onSecondaryStatus;
+  const showTertiaryStatus = Array.isArray(tertiaryStatusOptions) && onTertiaryStatus;
 
   return (
     <div className="heading-tools table-toolbar">
@@ -82,6 +87,18 @@ export default function TableToolbar({
           options={secondaryStatusOptions}
           placeholder={secondaryStatusPlaceholder}
           aria-label={secondaryStatusPlaceholder}
+          className="toolbar-fancy-select"
+          isClearable
+        />
+      ) : null}
+
+      {showTertiaryStatus ? (
+        <FancySelect
+          value={tertiaryStatus}
+          onChange={onTertiaryStatus}
+          options={tertiaryStatusOptions}
+          placeholder={tertiaryStatusPlaceholder}
+          aria-label={tertiaryStatusPlaceholder}
           className="toolbar-fancy-select"
           isClearable
         />

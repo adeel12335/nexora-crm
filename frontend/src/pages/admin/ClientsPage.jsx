@@ -42,9 +42,15 @@ function isPushedToProduction(client) {
 
 function productionStatusLabel(status) {
   if (status === 'done') return 'Done';
-  if (status === 'in_production') return 'Already pushed';
+  if (status === 'in_production') return 'In production';
   return 'Pending';
 }
+
+const PRODUCTION_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_production', label: 'In production' },
+  { value: 'done', label: 'Done' },
+];
 
 function toDateInputValue(iso) {
   const d = iso ? new Date(iso) : new Date();
@@ -109,6 +115,7 @@ export default function ClientsPage() {
   const [agentFilter, setAgentFilter] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('');
+  const [productionStatusFilter, setProductionStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [agents, setAgents] = useState([]);
@@ -193,6 +200,7 @@ export default function ClientsPage() {
             agentId: isAdmin && agentFilter ? agentFilter : undefined,
             paymentStatus: isAdmin && paymentStatusFilter ? paymentStatusFilter : undefined,
             orderStatus: isAdmin && orderStatusFilter ? orderStatusFilter : undefined,
+            productionStatus: productionStatusFilter || undefined,
             dateFrom: dateFrom || undefined,
             dateTo: dateTo || undefined,
             page,
@@ -221,11 +229,11 @@ export default function ClientsPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, showToast, search, agentFilter, paymentStatusFilter, orderStatusFilter, dateFrom, dateTo, page, isAdmin]);
+  }, [token, showToast, search, agentFilter, paymentStatusFilter, orderStatusFilter, productionStatusFilter, dateFrom, dateTo, page, isAdmin]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, agentFilter, paymentStatusFilter, orderStatusFilter, dateFrom, dateTo]);
+  }, [search, agentFilter, paymentStatusFilter, orderStatusFilter, productionStatusFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (!token || !selectedId) {
@@ -691,6 +699,10 @@ export default function ClientsPage() {
             secondaryStatus={orderStatusFilter}
             onSecondaryStatus={isAdmin ? setOrderStatusFilter : undefined}
             secondaryStatusPlaceholder="Order status"
+            tertiaryStatusOptions={PRODUCTION_STATUS_OPTIONS}
+            tertiaryStatus={productionStatusFilter}
+            onTertiaryStatus={setProductionStatusFilter}
+            tertiaryStatusPlaceholder="Production status"
             showDateRange
             dateFrom={dateFrom}
             dateTo={dateTo}
@@ -708,347 +720,399 @@ export default function ClientsPage() {
         {loading && clients.length === 0 ? (
           <div className="panel empty-state">Loading…</div>
         ) : (
-          <div className="clients-layout">
-            <div>
-              <div className="panel" style={{ overflowX: 'auto' }}>
-                <table className="attendance-table responsive-table">
-                  <thead>
-                    <tr>
-                      <th>Client</th>
-                      <th>Agent</th>
-                      <th>Deal</th>
-                      <th>Paid</th>
-                      <th>Balance</th>
-                      {isAdmin ? <th>Payment</th> : null}
-                      {isAdmin ? <th>Order</th> : null}
-                      {isAdmin ? <th>Actions</th> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clients.map((c) => (
-                        <tr
-                          key={c.id}
-                          className={selectedId === c.id ? 'is-selected' : ''}
-                          onClick={() => setSelectedId(c.id)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <td data-label="Client"><strong>{c.name}</strong></td>
-                          <td data-label="Agent">{c.agentName || '—'}</td>
-                          <td data-label="Deal">{money(c.dealAmount)}</td>
-                          <td data-label="Paid">{money(c.totalPaid)}</td>
-                          <td data-label="Balance">{money(c.balance)}</td>
-                          {isAdmin ? (
-                            <td data-label="Payment" onClick={(e) => e.stopPropagation()}>
-                              <FancySelect
-                                value={c.paymentStatus || ''}
-                                onChange={(paymentStatus) => updateAdminStatuses(c.id, {
-                                  paymentStatus: paymentStatus || null,
-                                })}
-                                options={CLIENT_PAYMENT_STATUSES}
-                                placeholder="Set status"
-                                aria-label="Payment status"
-                                isClearable
-                                className="clients-status-select"
-                              />
-                            </td>
-                          ) : null}
-                          {isAdmin ? (
-                            <td data-label="Order" onClick={(e) => e.stopPropagation()}>
-                              <FancySelect
-                                value={c.orderStatus || ''}
-                                onChange={(orderStatus) => updateAdminStatuses(c.id, {
-                                  orderStatus: orderStatus || null,
-                                })}
-                                options={CLIENT_ORDER_STATUSES}
-                                placeholder="Set status"
-                                aria-label="Order status"
-                                isClearable
-                                className="clients-status-select"
-                              />
-                            </td>
-                          ) : null}
-                          {isAdmin ? (
-                            <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
-                              <div className="row-actions clients-row-actions">
-                                {isPushedToProduction(c) ? (
-                                  <span
-                                    className={`clients-push-status${c.productionStatus === 'done' ? ' is-done' : ''}`}
-                                    title={productionStatusLabel(c.productionStatus)}
-                                  >
-                                    {c.productionStatus === 'done' ? 'Done' : 'Already pushed'}
-                                  </span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="tool-btn clients-push-btn"
-                                    disabled={busy}
-                                    title="Push to Production Board"
-                                    onClick={(e) => openPushToProduction(c, e)}
-                                  >
-                                    Push
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          ) : null}
-                        </tr>
-                    ))}
-                    {!clients.length && (
-                      <tr>
-                        <td colSpan={isAdmin ? 8 : 5}><div className="empty-state">No clients yet</div></td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <PaginationBar
-                total={pagination.total}
-                page={pagination.page}
-                totalPages={pagination.totalPages}
-                from={from}
-                to={to}
-                pageSize={PAGE_SIZE}
-                emptyLabel="No clients"
-                onPrev={() => setPage((p) => Math.max(1, p - 1))}
-                onNext={() => setPage((p) => p + 1)}
-              />
-            </div>
-
-            <div className="panel client-detail">
-              {!selectedId || !detail ? (
-                <div className="empty-state">Select a client to view payments</div>
-              ) : (
-                <>
-                  <div className="section-heading" style={{ borderTop: 0, paddingTop: 0 }}>
-                    <div>
-                      <h2>{detail.client.name}</h2>
-                      <p>
-                        Agent {detail.client.agentName} · Paid {money(detail.client.totalPaid)} of{' '}
-                        {money(detail.client.dealAmount)}
-                      </p>
+          <div className="clients-full-list">
+            <div className="panel" style={{ overflowX: 'auto' }}>
+              <table className="attendance-table responsive-table">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Agent</th>
+                    <th>Deal</th>
+                    <th>Paid</th>
+                    <th>Balance</th>
+                    {isAdmin ? <th>Payment</th> : null}
+                    {isAdmin ? <th>Order</th> : null}
+                    <th>Production</th>
+                    {isAdmin ? <th>Actions</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients.map((c) => (
+                    <tr
+                      key={c.id}
+                      className={selectedId === c.id ? 'is-selected' : ''}
+                      onClick={() => setSelectedId(c.id)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td data-label="Client"><strong>{c.name}</strong></td>
+                      <td data-label="Agent">{c.agentName || '—'}</td>
+                      <td data-label="Deal">{money(c.dealAmount)}</td>
+                      <td data-label="Paid">{money(c.totalPaid)}</td>
+                      <td data-label="Balance">{money(c.balance)}</td>
                       {isAdmin ? (
-                        <div className="client-admin-statuses">
-                          <label>
-                            Payment status
-                            <FancySelect
-                              value={detail.client.paymentStatus || ''}
-                              onChange={(paymentStatus) => updateAdminStatuses(detail.client.id, {
-                                paymentStatus: paymentStatus || null,
-                              })}
-                              options={CLIENT_PAYMENT_STATUSES}
-                              placeholder="Set payment status"
-                              aria-label="Payment status"
-                              isClearable
-                              fullWidth
-                            />
-                          </label>
-                          <label>
-                            Order status
-                            <FancySelect
-                              value={detail.client.orderStatus || ''}
-                              onChange={(orderStatus) => updateAdminStatuses(detail.client.id, {
-                                orderStatus: orderStatus || null,
-                              })}
-                              options={CLIENT_ORDER_STATUSES}
-                              placeholder="Set order status"
-                              aria-label="Order status"
-                              isClearable
-                              fullWidth
-                            />
-                          </label>
-                        </div>
+                        <td data-label="Payment" onClick={(e) => e.stopPropagation()}>
+                          <FancySelect
+                            value={c.paymentStatus || ''}
+                            onChange={(paymentStatus) => updateAdminStatuses(c.id, {
+                              paymentStatus: paymentStatus || null,
+                            })}
+                            options={CLIENT_PAYMENT_STATUSES}
+                            placeholder="Set status"
+                            aria-label="Payment status"
+                            isClearable
+                            className="clients-status-select"
+                          />
+                        </td>
                       ) : null}
-                    </div>
-                    {isAdmin ? (
-                      <div className="row-actions">
-                        {isPushedToProduction(detail.client) ? (
-                          <>
-                            <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}`}>
-                              {productionStatusLabel(detail.client.productionStatus)}
-                            </span>
-                            <button
-                              type="button"
-                              className="tool-btn"
-                              disabled={busy}
-                              onClick={() => openPushToProduction(detail.client)}
-                            >
-                              Push again
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            className="tool-btn"
-                            disabled={busy}
-                            onClick={() => openPushToProduction(detail.client)}
-                          >
-                            Push to Production
-                          </button>
-                        )}
-                        <button type="button" className="tool-btn primary" onClick={openAddPayment}>
-                          Add payment
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <h3 className="client-detail-title">Payments</h3>
-                  <table className="attendance-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Amount</th>
-                        {isAdmin ? (
-                          <>
-                            <th>Method</th>
-                            <th>Notes</th>
-                            <th>Actions</th>
-                          </>
-                        ) : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedPayments.map((p) => (
-                        <tr key={p.id}>
-                          <td>{p.paymentDate}</td>
-                          <td>{money(p.amount)}</td>
-                          {isAdmin ? (
-                            <>
-                              <td>{p.paymentMethodLabel || paymentMethodLabel(p.paymentMethod)}</td>
-                              <td>{p.notes || '—'}</td>
-                              <td>
-                                <div className="row-actions">
-                                  <button
-                                    type="button"
-                                    className="tool-btn"
-                                    disabled={busy}
-                                    onClick={() => handleDownloadInvoice(detail.client, p)}
-                                  >
-                                    Invoice
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="tool-btn"
-                                    disabled={busy}
-                                    onClick={() => openEditPayment(p)}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="tool-btn danger-btn"
-                                    disabled={busy}
-                                    onClick={() => setRemovePayment(p)}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          ) : null}
-                        </tr>
-                      ))}
-                      {!payments.length && (
-                        <tr>
-                          <td colSpan={isAdmin ? 5 : 2}>
-                            <div className="empty-state">No payments yet</div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                  {payments.length > 0 && (
-                    <div className="pagination-bar pagination-bar--compact">
-                      <span className="pagination-meta">
-                        {payMeta.from}–{payMeta.to} of {payments.length}
-                      </span>
-                      <div className="pagination-controls">
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          disabled={(payMeta.page || payPage) <= 1}
-                          onClick={() => setPayPage((p) => Math.max(1, p - 1))}
+                      {isAdmin ? (
+                        <td data-label="Order" onClick={(e) => e.stopPropagation()}>
+                          <FancySelect
+                            value={c.orderStatus || ''}
+                            onChange={(orderStatus) => updateAdminStatuses(c.id, {
+                              orderStatus: orderStatus || null,
+                            })}
+                            options={CLIENT_ORDER_STATUSES}
+                            placeholder="Set status"
+                            aria-label="Order status"
+                            isClearable
+                            className="clients-status-select"
+                          />
+                        </td>
+                      ) : null}
+                      <td data-label="Production">
+                        <span
+                          className={`clients-push-status${c.productionStatus === 'done' ? ' is-done' : ''}${c.productionStatus === 'pending' || !c.productionStatus ? ' is-pending' : ''}`}
                         >
-                          Prev
-                        </button>
-                        <span className="pagination-page">
-                          {payMeta.page || payPage}/{payMeta.totalPages}
+                          {productionStatusLabel(c.productionStatus)}
                         </span>
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          disabled={(payMeta.page || payPage) >= payMeta.totalPages}
-                          onClick={() => setPayPage((p) => p + 1)}
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
+                      </td>
+                      {isAdmin ? (
+                        <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
+                          <div className="row-actions clients-row-actions">
+                            {isPushedToProduction(c) ? (
+                              <button
+                                type="button"
+                                className="tool-btn clients-push-btn"
+                                disabled={busy}
+                                title="Push again to Production Board"
+                                onClick={(e) => openPushToProduction(c, e)}
+                              >
+                                Push again
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="tool-btn clients-push-btn"
+                                disabled={busy}
+                                title="Push to Production Board"
+                                onClick={(e) => openPushToProduction(c, e)}
+                              >
+                                Push
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                  {!clients.length && (
+                    <tr>
+                      <td colSpan={isAdmin ? 9 : 6}>
+                        <div className="empty-state">No clients yet</div>
+                      </td>
+                    </tr>
                   )}
-
-                  <h3 className="client-detail-title">Commission generated</h3>
-                  <table className="attendance-table">
-                    <thead>
-                      <tr>
-                        <th>Person</th>
-                        <th>Role</th>
-                        <th>Rate</th>
-                        <th>Commission</th>
-                        <th>Cycle</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedCommissions.map((ce) => (
-                        <tr key={ce.id}>
-                          <td>{ce.userName}</td>
-                          <td>{ce.earnerRole}</td>
-                          <td>{ce.ratePercentage}%</td>
-                          <td>{money(ce.commissionAmount)}</td>
-                          <td>{ce.cycleStart} → {ce.cycleEnd}</td>
-                          <td>{ce.status === 'estimated' ? 'Estimated' : 'Posted'}</td>
-                        </tr>
-                      ))}
-                      {!commissions.length && (
-                        <tr><td colSpan={6}><div className="empty-state">No commission yet</div></td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                  {commissions.length > 0 && (
-                    <div className="pagination-bar pagination-bar--compact">
-                      <span className="pagination-meta">
-                        {commMeta.from}–{commMeta.to} of {commissions.length}
-                      </span>
-                      <div className="pagination-controls">
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          disabled={(commMeta.page || commPage) <= 1}
-                          onClick={() => setCommPage((p) => Math.max(1, p - 1))}
-                        >
-                          Prev
-                        </button>
-                        <span className="pagination-page">
-                          {commMeta.page || commPage}/{commMeta.totalPages}
-                        </span>
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          disabled={(commMeta.page || commPage) >= commMeta.totalPages}
-                          onClick={() => setCommPage((p) => p + 1)}
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+                </tbody>
+              </table>
             </div>
+
+            <PaginationBar
+              total={pagination.total}
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              from={from}
+              to={to}
+              pageSize={PAGE_SIZE}
+              emptyLabel="No clients"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         )}
       </section>
+
+      <aside
+        className={`client-drawer${selectedId ? ' open' : ''}`}
+        aria-label="Client details"
+        aria-hidden={!selectedId}
+      >
+        <header className="client-drawer-header">
+          <div>
+            <p className="client-drawer-kicker">Client detail</p>
+            <h2>{detail?.client?.name || (selectedId ? 'Loading…' : 'Client')}</h2>
+            {detail?.client ? (
+              <p>
+                Agent {detail.client.agentName} · Paid {money(detail.client.totalPaid)} of{' '}
+                {money(detail.client.dealAmount)}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="plain-icon"
+            aria-label="Close client detail"
+            onClick={() => {
+              setSelectedId(null);
+              setDetail(null);
+            }}
+          >
+            <Icon id="i-close" />
+          </button>
+        </header>
+
+        <div className="client-drawer-body">
+          {!selectedId || !detail ? (
+            <div className="empty-state">Loading client…</div>
+          ) : (
+            <>
+              {isAdmin ? (
+                <div className="client-admin-statuses">
+                  <label>
+                    Payment status
+                    <FancySelect
+                      value={detail.client.paymentStatus || ''}
+                      onChange={(paymentStatus) => updateAdminStatuses(detail.client.id, {
+                        paymentStatus: paymentStatus || null,
+                      })}
+                      options={CLIENT_PAYMENT_STATUSES}
+                      placeholder="Set payment status"
+                      aria-label="Payment status"
+                      isClearable
+                      fullWidth
+                    />
+                  </label>
+                  <label>
+                    Order status
+                    <FancySelect
+                      value={detail.client.orderStatus || ''}
+                      onChange={(orderStatus) => updateAdminStatuses(detail.client.id, {
+                        orderStatus: orderStatus || null,
+                      })}
+                      options={CLIENT_ORDER_STATUSES}
+                      placeholder="Set order status"
+                      aria-label="Order status"
+                      isClearable
+                      fullWidth
+                    />
+                  </label>
+                  <label>
+                    Production status
+                    <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}${detail.client.productionStatus === 'pending' || !detail.client.productionStatus ? ' is-pending' : ''}`}>
+                      {productionStatusLabel(detail.client.productionStatus)}
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <div className="client-admin-statuses">
+                  <label>
+                    Production status
+                    <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}${detail.client.productionStatus === 'pending' || !detail.client.productionStatus ? ' is-pending' : ''}`}>
+                      {productionStatusLabel(detail.client.productionStatus)}
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {isAdmin ? (
+                <div className="row-actions client-drawer-actions">
+                  {isPushedToProduction(detail.client) ? (
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={busy}
+                      onClick={() => openPushToProduction(detail.client)}
+                    >
+                      Push again
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={busy}
+                      onClick={() => openPushToProduction(detail.client)}
+                    >
+                      Push to Production
+                    </button>
+                  )}
+                  <button type="button" className="tool-btn primary" onClick={openAddPayment}>
+                    Add payment
+                  </button>
+                </div>
+              ) : null}
+
+              <h3 className="client-detail-title">Payments</h3>
+              <table className="attendance-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    {isAdmin ? (
+                      <>
+                        <th>Method</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                      </>
+                    ) : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedPayments.map((p) => (
+                    <tr key={p.id}>
+                      <td>{p.paymentDate}</td>
+                      <td>{money(p.amount)}</td>
+                      {isAdmin ? (
+                        <>
+                          <td>{p.paymentMethodLabel || paymentMethodLabel(p.paymentMethod)}</td>
+                          <td>{p.notes || '—'}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button
+                                type="button"
+                                className="tool-btn"
+                                disabled={busy}
+                                onClick={() => handleDownloadInvoice(detail.client, p)}
+                              >
+                                Invoice
+                              </button>
+                              <button
+                                type="button"
+                                className="tool-btn"
+                                disabled={busy}
+                                onClick={() => openEditPayment(p)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="tool-btn danger-btn"
+                                disabled={busy}
+                                onClick={() => setRemovePayment(p)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      ) : null}
+                    </tr>
+                  ))}
+                  {!payments.length && (
+                    <tr>
+                      <td colSpan={isAdmin ? 5 : 2}>
+                        <div className="empty-state">No payments yet</div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {payments.length > 0 && (
+                <div className="pagination-bar pagination-bar--compact">
+                  <span className="pagination-meta">
+                    {payMeta.from}–{payMeta.to} of {payments.length}
+                  </span>
+                  <div className="pagination-controls">
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={(payMeta.page || payPage) <= 1}
+                      onClick={() => setPayPage((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </button>
+                    <span className="pagination-page">
+                      {payMeta.page || payPage}/{payMeta.totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={(payMeta.page || payPage) >= payMeta.totalPages}
+                      onClick={() => setPayPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <h3 className="client-detail-title">Commission generated</h3>
+              <table className="attendance-table">
+                <thead>
+                  <tr>
+                    <th>Person</th>
+                    <th>Role</th>
+                    <th>Rate</th>
+                    <th>Commission</th>
+                    <th>Cycle</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedCommissions.map((ce) => (
+                    <tr key={ce.id}>
+                      <td>{ce.userName}</td>
+                      <td>{ce.earnerRole}</td>
+                      <td>{ce.ratePercentage}%</td>
+                      <td>{money(ce.commissionAmount)}</td>
+                      <td>{ce.cycleStart} → {ce.cycleEnd}</td>
+                      <td>{ce.status === 'estimated' ? 'Estimated' : 'Posted'}</td>
+                    </tr>
+                  ))}
+                  {!commissions.length && (
+                    <tr><td colSpan={6}><div className="empty-state">No commission yet</div></td></tr>
+                  )}
+                </tbody>
+              </table>
+              {commissions.length > 0 && (
+                <div className="pagination-bar pagination-bar--compact">
+                  <span className="pagination-meta">
+                    {commMeta.from}–{commMeta.to} of {commissions.length}
+                  </span>
+                  <div className="pagination-controls">
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={(commMeta.page || commPage) <= 1}
+                      onClick={() => setCommPage((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </button>
+                    <span className="pagination-page">
+                      {commMeta.page || commPage}/{commMeta.totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="tool-btn"
+                      disabled={(commMeta.page || commPage) >= commMeta.totalPages}
+                      onClick={() => setCommPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </aside>
+
+      <div
+        className={`client-drawer-scrim${selectedId ? ' visible' : ''}`}
+        onClick={() => {
+          setSelectedId(null);
+          setDetail(null);
+        }}
+        aria-hidden={!selectedId}
+      />
 
       {isAdmin && pushTarget && (
         <div

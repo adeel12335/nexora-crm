@@ -308,6 +308,10 @@
   gap: 16px;
   align-items: stretch;
 }
+.clients-full-list {
+  display: grid;
+  gap: 12px;
+}
 .clients-layout > div {
   display: flex;
   flex-direction: column;
@@ -356,8 +360,81 @@
   background: color-mix(in srgb, #168a4a 12%, white);
   color: #168a4a;
 }
+.clients-push-status.is-pending {
+  border-color: var(--border);
+  background: var(--surface-2, #f4f6f8);
+  color: var(--muted);
+}
 .attendance-table tr.is-selected .clients-push-btn {
   background: var(--surface);
+}
+.client-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 96vw);
+  border-left: 1px solid var(--border);
+  background: var(--canvas);
+  box-shadow: var(--shadow-md, 0 18px 40px rgba(15, 23, 42, 0.16));
+  transform: translateX(102%);
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.client-drawer.open {
+  transform: none;
+  pointer-events: auto;
+}
+.client-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.client-drawer-kicker {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.client-drawer-header h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+}
+.client-drawer-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.client-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 24px;
+}
+.client-drawer-actions {
+  margin: 14px 0 4px;
+}
+.client-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background: rgba(15, 23, 42, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+.client-drawer-scrim.visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 @media (max-width: 1050px) {
   .clients-layout { grid-template-columns: 1fr; }
@@ -370,7 +447,10 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 4px;
+}
+.client-admin-statuses label:last-child {
+  grid-column: 1 / -1;
 }
 .client-admin-statuses label {
   display: grid;
