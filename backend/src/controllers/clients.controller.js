@@ -54,20 +54,23 @@ function toClient(row, { role = null } = {}) {
   };
 }
 
-function toPayment(row) {
+function toPayment(row, { includeSensitive = true } = {}) {
   const method = row.payment_method || null;
-  return {
+  const payment = {
     id: row.id,
     clientId: row.client_id,
     clientName: row.client_name ?? null,
     amount: money(row.amount),
     paymentDate: row.payment_date,
-    paymentMethod: method,
-    paymentMethodLabel: paymentMethodLabel(method),
-    notes: row.notes,
     recordedBy: row.recorded_by,
     createdAt: row.created_at,
   };
+  if (includeSensitive) {
+    payment.paymentMethod = method;
+    payment.paymentMethodLabel = paymentMethodLabel(method);
+    payment.notes = row.notes;
+  }
+  return payment;
 }
 
 const CLIENT_SELECT = `
@@ -309,9 +312,10 @@ export async function getClient(req, res) {
     [req.params.id]
   );
 
+  const includeSensitive = role === 'admin';
   res.json({
     client: toClient(row, { role }),
-    payments: payments.map(toPayment),
+    payments: payments.map((p) => toPayment(p, { includeSensitive })),
     commissions: commissions.map((ce) => ({
       id: ce.id,
       paymentId: ce.payment_id,

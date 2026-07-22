@@ -799,9 +799,13 @@ export default function ClientsPage() {
                       <tr>
                         <th>Date</th>
                         <th>Amount</th>
-                        <th>Method</th>
-                        <th>Notes</th>
-                        {isAdmin ? <th>Actions</th> : null}
+                        {isAdmin ? (
+                          <>
+                            <th>Method</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                          </>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -809,43 +813,45 @@ export default function ClientsPage() {
                         <tr key={p.id}>
                           <td>{p.paymentDate}</td>
                           <td>{money(p.amount)}</td>
-                          <td>{p.paymentMethodLabel || paymentMethodLabel(p.paymentMethod)}</td>
-                          <td>{p.notes || '—'}</td>
                           {isAdmin ? (
-                            <td>
-                              <div className="row-actions">
-                                <button
-                                  type="button"
-                                  className="tool-btn"
-                                  disabled={busy}
-                                  onClick={() => handleDownloadInvoice(detail.client, p)}
-                                >
-                                  Invoice
-                                </button>
-                                <button
-                                  type="button"
-                                  className="tool-btn"
-                                  disabled={busy}
-                                  onClick={() => openEditPayment(p)}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  className="tool-btn danger-btn"
-                                  disabled={busy}
-                                  onClick={() => setRemovePayment(p)}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
+                            <>
+                              <td>{p.paymentMethodLabel || paymentMethodLabel(p.paymentMethod)}</td>
+                              <td>{p.notes || '—'}</td>
+                              <td>
+                                <div className="row-actions">
+                                  <button
+                                    type="button"
+                                    className="tool-btn"
+                                    disabled={busy}
+                                    onClick={() => handleDownloadInvoice(detail.client, p)}
+                                  >
+                                    Invoice
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="tool-btn"
+                                    disabled={busy}
+                                    onClick={() => openEditPayment(p)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="tool-btn danger-btn"
+                                    disabled={busy}
+                                    onClick={() => setRemovePayment(p)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </>
                           ) : null}
                         </tr>
                       ))}
                       {!payments.length && (
                         <tr>
-                          <td colSpan={isAdmin ? 5 : 4}>
+                          <td colSpan={isAdmin ? 5 : 2}>
                             <div className="empty-state">No payments yet</div>
                           </td>
                         </tr>
