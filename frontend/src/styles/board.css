@@ -24,110 +24,27 @@
 .filter-strip button { min-height:40px; border:1px solid var(--border); padding:7px 12px; border-radius:9px; background:transparent; color:var(--muted); font-size:13px; cursor:pointer; }
 .filter-strip button.active { border-color:var(--accent); color:var(--accent-active); background:color-mix(in srgb,var(--accent-soft) 42%,white); }
 
-.board-filter-panel {
-  display: grid;
-  gap: 10px;
-  margin: 0 0 14px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-}
-.board-filter-panel .filter-strip {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-.board-filter-panel .board-stage-tabs {
-  padding: 2px 0 0;
-  margin: 0;
-}
-
-.board-stage-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 4px 2px 14px;
-  margin: 0 0 4px;
-  scrollbar-width: thin;
-}
-.board-stage-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  max-width: 220px;
-  min-height: 42px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease), transform .2s var(--ease);
-}
-.board-stage-tab:hover {
-  border-color: color-mix(in srgb, var(--stage, var(--accent)) 45%, var(--border));
-  color: var(--text);
-}
-.board-stage-tab.active {
-  border-color: color-mix(in srgb, var(--stage, var(--accent)) 55%, var(--border));
-  background: color-mix(in srgb, var(--stage, var(--accent)) 14%, white);
-  color: var(--text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--stage, var(--accent)) 20%, transparent);
-}
-.board-stage-tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.board-stage-tab-count {
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 999px;
-  display: inline-grid;
-  place-items: center;
-  background: var(--surface-3);
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.board-stage-tab.active .board-stage-tab-count {
-  background: color-mix(in srgb, var(--stage, var(--accent)) 22%, white);
-}
-.board-stage-panel {
-  min-width: 0;
-}
-.board-stage-panel .kanban-column {
-  flex: 1 1 auto;
-  width: 100%;
-  max-width: none;
-  min-width: 0;
-}
-.board-stage-panel .kanban-column.mobile-hidden { display: block; }
-
 .mobile-stage-picker { display:none; }
 
-/* Fixed-width columns so cards never squash/overlap */
+/* Trello-style horizontal columns */
 .kanban,
-.kanban.kanban-six {
+.kanban.kanban-six,
+.kanban.kanban-pipeline {
   display: flex;
   gap: 12px;
-  align-items: stretch;
-  padding-bottom: 12px;
+  align-items: flex-start;
+  padding-bottom: 16px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  min-height: 420px;
 }
 .kanban-column {
   --stage: var(--accent);
-  flex: 0 0 260px;
-  width: 260px;
-  max-width: 260px;
-  min-width: 260px;
+  flex: 0 0 272px;
+  width: 272px;
+  max-width: 272px;
+  min-width: 272px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
@@ -195,8 +112,10 @@
   gap: 8px;
   padding: 10px;
   min-height: 160px;
+  max-height: calc(100vh - 260px);
   flex: 1;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .task-card {
   position: relative;
@@ -800,31 +719,23 @@
   }
   .board-tools .search-box { display: flex !important; width: auto !important; min-width: 0; }
   .board-tools .tool-btn span { display: none; }
-  .mobile-stage-picker {
-    display: grid;
-    gap: 6px;
-    margin-bottom: 12px;
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 700;
+  .kanban,
+  .kanban.kanban-six,
+  .kanban.kanban-pipeline {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-items: flex-start;
+    -webkit-overflow-scrolling: touch;
   }
-  .mobile-stage-picker select {
-    height: 46px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0 12px;
-    background: #fff;
-    color: var(--text);
-    font-size: 14px;
-  }
-  .kanban, .kanban.kanban-six { display: block; overflow: visible; }
   .kanban-column {
-    width: 100%;
-    max-width: none;
-    min-width: 0;
-    flex: none;
+    flex: 0 0 272px;
+    width: 272px;
+    max-width: 272px;
+    min-width: 272px;
+    margin-bottom: 0;
   }
-  .kanban-column.mobile-hidden { display: none; }
+  .kanban-column.mobile-hidden { display: flex; }
   .filter-strip { overflow: auto; flex-wrap: nowrap; }
   .filter-strip button { white-space: nowrap; }
   .detail-panel { width: min(460px, 100vw); }
