@@ -1,5 +1,5 @@
 import { pool } from '../config/db.js';
-import { notifyProductionCardChange } from '../services/notifications.js';
+import { notifyProductionCardChange, notifyProductionCardCreated } from '../services/notifications.js';
 
 const STAGES = new Set(['new_draft', 'in_progress', 'revision', 'review', 'live', 'done']);
 const TYPES = new Set(['draft', 'revision']);
@@ -385,7 +385,31 @@ export async function createCard(req, res) {
   await syncClientProductionStatus(resolved.id);
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [result.insertId]);
-  res.status(201).json({ card: toCard(row) });
+  const card = toCard(row);
+
+  (async () => {
+    const [[assignee]] = await pool.query(
+      'SELECT whatsapp_number FROM users WHERE id = ?',
+      [safeAssigneeId],
+    );
+    await notifyProductionCardCreated({
+      userId: card.assignee?.id,
+      whatsappNumber: assignee?.whatsapp_number || null,
+      cardTitle: card.title,
+      clientName: card.client,
+      assigneeName: card.assignee?.name,
+      stage: card.stage,
+      type: card.type,
+      priority: card.priority,
+      dueDate: card.dueDate,
+      relatedCardId: card.id,
+      fileCount: Array.isArray(card.fileList) ? card.fileList.length : 0,
+    });
+  })().catch((err) => {
+    console.error('[production-create-notify]', err.message);
+  });
+
+  res.status(201).json({ card });
 }
 
 export async function updateCard(req, res) {

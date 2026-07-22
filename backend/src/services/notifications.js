@@ -298,3 +298,62 @@ export async function notifyProductionCardChange({
 
   return { ...personal, group };
 }
+
+/**
+ * New production card / push-to-board → assignee DM + optional WhatsApp group.
+ */
+export async function notifyProductionCardCreated({
+  userId,
+  whatsappNumber,
+  cardTitle,
+  clientName,
+  assigneeName,
+  stage,
+  type,
+  priority,
+  dueDate = null,
+  relatedCardId = null,
+  fileCount = 0,
+}) {
+  const title = type === 'revision' ? 'Revision pushed to production' : 'Draft pushed to production';
+  const lines = [
+    `"${cardTitle}" for ${clientName}`,
+    `Stage: ${stageLabel(stage)}`,
+    `Type: ${type === 'revision' ? 'Revision' : 'Draft'}`,
+  ];
+  if (priority && priority !== 'none') {
+    lines.push(`Priority: ${priorityLabel(priority)}`);
+  }
+  if (assigneeName) lines.push(`Assignee: ${assigneeName}`);
+  if (dueDate) {
+    const due = new Date(dueDate);
+    if (!Number.isNaN(due.getTime())) {
+      lines.push(`Due: ${due.toLocaleString('en-GB', { timeZone: 'Asia/Karachi' })}`);
+    }
+  }
+  if (fileCount > 0) {
+    lines.push(`Attachments: ${fileCount}`);
+  }
+
+  const body = lines.join('\n');
+  const settings = await getWhatsAppPortalSettings();
+
+  const personal = await notifyUser({
+    userId,
+    whatsappNumber,
+    type: 'system',
+    tone: 'green',
+    icon: 'i-production',
+    title,
+    body,
+    relatedCardId,
+    sendWhatsApp: true,
+  });
+
+  let group = null;
+  if (settings.notifyCardUpdatesGroup) {
+    group = await notifyGroup({ title, body, type: 'system', tone: 'green' });
+  }
+
+  return { ...personal, group };
+}

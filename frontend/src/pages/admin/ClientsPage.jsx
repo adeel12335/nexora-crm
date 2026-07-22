@@ -30,6 +30,17 @@ function money(n) {
   return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function isPushedToProduction(client) {
+  const status = client?.productionStatus || 'pending';
+  return status === 'in_production' || status === 'done';
+}
+
+function productionStatusLabel(status) {
+  if (status === 'done') return 'Done';
+  if (status === 'in_production') return 'Already pushed';
+  return 'Pending';
+}
+
 function toDateInputValue(iso) {
   const d = iso ? new Date(iso) : new Date();
   if (Number.isNaN(d.getTime())) return '';
@@ -690,15 +701,24 @@ export default function ClientsPage() {
                           {isAdmin ? (
                             <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                               <div className="row-actions clients-row-actions">
-                                <button
-                                  type="button"
-                                  className="tool-btn clients-push-btn"
-                                  disabled={busy}
-                                  title="Push to Production Board"
-                                  onClick={(e) => openPushToProduction(c, e)}
-                                >
-                                  Push
-                                </button>
+                                {isPushedToProduction(c) ? (
+                                  <span
+                                    className={`clients-push-status${c.productionStatus === 'done' ? ' is-done' : ''}`}
+                                    title={productionStatusLabel(c.productionStatus)}
+                                  >
+                                    {c.productionStatus === 'done' ? 'Done' : 'Already pushed'}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="tool-btn clients-push-btn"
+                                    disabled={busy}
+                                    title="Push to Production Board"
+                                    onClick={(e) => openPushToProduction(c, e)}
+                                  >
+                                    Push
+                                  </button>
+                                )}
                               </div>
                             </td>
                           ) : null}
@@ -741,14 +761,30 @@ export default function ClientsPage() {
                     </div>
                     {isAdmin ? (
                       <div className="row-actions">
-                        <button
-                          type="button"
-                          className="tool-btn"
-                          disabled={busy}
-                          onClick={() => openPushToProduction(detail.client)}
-                        >
-                          Push to Production
-                        </button>
+                        {isPushedToProduction(detail.client) ? (
+                          <>
+                            <span className={`clients-push-status${detail.client.productionStatus === 'done' ? ' is-done' : ''}`}>
+                              {productionStatusLabel(detail.client.productionStatus)}
+                            </span>
+                            <button
+                              type="button"
+                              className="tool-btn"
+                              disabled={busy}
+                              onClick={() => openPushToProduction(detail.client)}
+                            >
+                              Push again
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="tool-btn"
+                            disabled={busy}
+                            onClick={() => openPushToProduction(detail.client)}
+                          >
+                            Push to Production
+                          </button>
+                        )}
                         <button type="button" className="tool-btn primary" onClick={openAddPayment}>
                           Add payment
                         </button>
