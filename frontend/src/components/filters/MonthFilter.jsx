@@ -75,7 +75,7 @@ export function YearFilter({ value, onChange, label = 'Year', hint }) {
   );
 }
 
-/** Single-day picker for date ranges */
+/** Single-day picker (filters + forms). Defaults max to today unless allowFuture. */
 export function DayFilter({
   value,
   onChange,
@@ -83,18 +83,22 @@ export function DayFilter({
   placeholder = 'Pick date',
   maxDate,
   minDate,
+  allowFuture = false,
+  clearable = true,
+  className = '',
 }) {
   const selected = value ? new Date(`${value}T12:00:00`) : null;
+  const resolvedMax = allowFuture ? maxDate : (maxDate ?? new Date());
   return (
-    <div className="month-filter month-filter--day">
+    <div className={`month-filter month-filter--day${className ? ` ${className}` : ''}`}>
       {label ? <span className="month-filter-label">{label}</span> : null}
       <DatePicker
         selected={selected}
         onChange={(date) => onChange(date ? format(date, 'yyyy-MM-dd') : '')}
         dateFormat="dd MMM yyyy"
         minDate={minDate}
-        maxDate={maxDate ?? new Date()}
-        isClearable
+        maxDate={resolvedMax}
+        isClearable={clearable}
         customInput={<MonthInput placeholder={placeholder} />}
         calendarClassName="month-filter-calendar"
         popperClassName="month-filter-popper"

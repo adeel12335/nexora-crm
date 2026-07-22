@@ -22,6 +22,8 @@ async function request(path, { method = 'GET', body, token } = {}) {
 export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   me: (token) => request('/auth/me', { token }),
+  updateProfile: (token, patch) => request('/auth/me', { method: 'PATCH', body: patch, token }),
+  changePassword: (token, body) => request('/auth/change-password', { method: 'POST', body, token }),
   // --- users ---
   listUsers: (token, query = '') => request(`/users${query}`, { token }),
   getUser: (token, id) => request(`/users/${id}`, { token }),
@@ -187,4 +189,6 @@ export const api = {
     request('/settings/whatsapp', { method: 'PATCH', body, token }),
   testWhatsAppSettings: (token, body) =>
     request('/settings/whatsapp/test', { method: 'POST', body, token }),
+  sendWhatsAppBroadcast: (token, body) =>
+    request('/settings/whatsapp/send', { method: 'POST', body, token }),
 };

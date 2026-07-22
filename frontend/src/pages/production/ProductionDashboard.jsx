@@ -20,7 +20,7 @@ export default function ProductionDashboard() {
           <Link to="/production/board" className="tool-btn">Open board</Link>
         </div>
         <div className="panel empty-state">
-          Use the Production Board to add cards. Deadlines and WhatsApp alerts will use live data.
+          Use the Production Board to add cards. Deadline WhatsApp alerts fire at 1 day and 12 hours before due.
         </div>
       </section>
     </>

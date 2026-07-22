@@ -196,13 +196,18 @@ export function createClientInvoicePdf(data, { logoData, globeData }) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(...colors.muted);
-  if (data.clientEmail) doc.text(String(data.clientEmail), mainLeft, 176);
+  // A wrapped 2-line client name pushes everything below it down by one
+  // text line so it never collides with the email / balance-paid caption.
+  const nameShift = clientLines.length > 1 ? 22 : 0;
+  const emailY = 176 + nameShift;
+  if (data.clientEmail) doc.text(String(data.clientEmail), mainLeft, emailY);
   doc.setFontSize(8.5);
-  doc.text(isPaid ? 'No balance outstanding' : `Paid to date: ${moneyUsd(deposit)}`, mainRight, 176, { align: 'right' });
+  doc.text(isPaid ? 'No balance outstanding' : `Paid to date: ${moneyUsd(deposit)}`, mainRight, emailY, { align: 'right' });
 
+  const dividerY1 = 201 + nameShift;
   doc.setDrawColor(...colors.border);
   doc.setLineWidth(0.8);
-  doc.line(mainLeft, 201, mainRight, 201);
+  doc.line(mainLeft, dividerY1, mainRight, dividerY1);
 
   // Compact service facts replace the former pair of rounded metadata cards.
   const facts = [
@@ -212,88 +217,109 @@ export function createClientInvoicePdf(data, { logoData, globeData }) {
   ];
   const factX = [mainLeft, 421, 501];
   const factWidths = [245, 62, 56];
+  const factLabelY = dividerY1 + 23;
+  const factValueY = dividerY1 + 43;
   facts.forEach(([label, value], index) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(...colors.muted);
-    doc.text(label, factX[index], 224);
+    doc.text(label, factX[index], factLabelY);
     doc.setFontSize(index === 0 ? 10.5 : 11);
     doc.setTextColor(...colors.ink);
     const lines = doc.splitTextToSize(String(value).toUpperCase(), factWidths[index]).slice(0, 1);
-    doc.text(lines, factX[index], 244);
+    doc.text(lines, factX[index], factValueY);
   });
-  doc.line(mainLeft, 263, mainRight, 263);
+  const dividerY2 = dividerY1 + 62;
+  doc.line(mainLeft, dividerY2, mainRight, dividerY2);
 
-  // Minimal editorial line-item table.
+  // Minimal editorial line-item table. Its height follows the actual bullet
+  // count instead of a fixed number, so a short service list never leaves a
+  // large empty gap (and a long one never gets clipped without growing).
+  const headerTop = dividerY2 + 17;
+  const headerLabelY = headerTop + 21;
   doc.setFillColor(...colors.surface);
-  doc.rect(mainLeft, 280, mainWidth, 34, 'F');
+  doc.rect(mainLeft, headerTop, mainWidth, 34, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(...colors.text);
-  doc.text('DESCRIPTION', mainLeft + 12, 301);
-  doc.text('QTY', 407, 301, { align: 'center' });
-  doc.text('RATE', 478, 301, { align: 'right' });
-  doc.text('TOTAL', mainRight, 301, { align: 'right' });
+  doc.text('DESCRIPTION', mainLeft + 12, headerLabelY);
+  doc.text('QTY', 407, headerLabelY, { align: 'center' });
+  doc.text('RATE', 478, headerLabelY, { align: 'right' });
+  doc.text('TOTAL', mainRight, headerLabelY, { align: 'right' });
+
+  const itemBoxTop = headerTop + 34;
+  const rowContentY = itemBoxTop + 28;
+  const bulletsStartY = itemBoxTop + 54;
+  const bulletLineHeight = 15;
+  const bulletsToShow = serviceBullets.slice(0, 7);
+  const bulletsBlockBottom = bulletsToShow.length
+    ? bulletsStartY + (bulletsToShow.length - 1) * bulletLineHeight + 18
+    : rowContentY + 26;
+  const itemBoxBottom = Math.max(itemBoxTop + 68, bulletsBlockBottom);
 
   doc.setDrawColor(...colors.border);
-  doc.rect(mainLeft, 314, mainWidth, 166, 'S');
-  doc.line(391, 314, 391, 480);
+  doc.rect(mainLeft, itemBoxTop, mainWidth, itemBoxBottom - itemBoxTop, 'S');
+  doc.line(391, itemBoxTop, 391, itemBoxBottom);
   doc.setTextColor(...colors.ink);
   doc.setFontSize(12);
-  doc.text(doc.splitTextToSize(serviceTitle.toUpperCase(), 218).slice(0, 2), mainLeft + 12, 342);
+  doc.text(doc.splitTextToSize(serviceTitle.toUpperCase(), 218).slice(0, 2), mainLeft + 12, rowContentY);
   doc.setFontSize(10.5);
-  doc.text(String(quantity), 407, 342, { align: 'center' });
-  doc.text(moneyUsd(rate), 478, 342, { align: 'right' });
-  doc.text(moneyUsd(total), mainRight, 342, { align: 'right' });
+  doc.text(String(quantity), 407, rowContentY, { align: 'center' });
+  doc.text(moneyUsd(rate), 478, rowContentY, { align: 'right' });
+  doc.text(moneyUsd(total), mainRight, rowContentY, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.4);
   doc.setTextColor(...colors.muted);
-  let bulletY = 368;
-  for (const line of serviceBullets.slice(0, 7)) {
-    if (bulletY > 462) break;
+  let bulletY = bulletsStartY;
+  for (const line of bulletsToShow) {
     doc.setFillColor(...colors.ink);
     doc.rect(mainLeft + 14, bulletY - 5, 3, 3, 'F');
     doc.text(doc.splitTextToSize(line, 208).slice(0, 1), mainLeft + 25, bulletY);
-    bulletY += 15;
+    bulletY += bulletLineHeight;
   }
+
+  // Everything below the item table shifts by however much its dynamic
+  // height differs from the original fixed 166pt, keeping consistent gaps
+  // whether the table grew or shrank.
+  const belowShift = itemBoxBottom - 480;
 
   // Payment instructions and totals form one open, asymmetrical composition.
   doc.setFillColor(...colors.surface);
-  doc.rect(mainLeft, 503, 244, 128, 'F');
+  doc.rect(mainLeft, 503 + belowShift, 244, 128, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...colors.muted);
-  doc.text('PAYMENT METHOD', mainLeft + 16, 527);
+  doc.text('PAYMENT METHOD', mainLeft + 16, 527 + belowShift);
   doc.setTextColor(...colors.ink);
   doc.setFontSize(14);
-  doc.text(paymentMethodLabel, mainLeft + 16, 552);
+  doc.text(paymentMethodLabel, mainLeft + 16, 552 + belowShift);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.2);
   doc.setTextColor(...colors.muted);
   if (paymentLink) {
     const linkLines = doc.splitTextToSize(paymentLink, 210).slice(0, 2);
-    doc.textWithLink(linkLines[0], mainLeft + 16, 576, { url: paymentLink });
-    if (linkLines[1]) doc.textWithLink(linkLines[1], mainLeft + 16, 590, { url: paymentLink });
+    doc.textWithLink(linkLines[0], mainLeft + 16, 576 + belowShift, { url: paymentLink });
+    if (linkLines[1]) doc.textWithLink(linkLines[1], mainLeft + 16, 590 + belowShift, { url: paymentLink });
     doc.setFontSize(8.2);
-    doc.text('Secure checkout link', mainLeft + 16, 612);
+    doc.text('Secure checkout link', mainLeft + 16, 612 + belowShift);
   } else {
-    doc.text(`Paid via ${paymentMethodLabel}.`, mainLeft + 16, 576);
+    doc.text(`Paid via ${paymentMethodLabel}.`, mainLeft + 16, 576 + belowShift);
     doc.setFontSize(8.2);
-    doc.text(brandEmail, mainLeft + 16, 603);
+    doc.text(brandEmail, mainLeft + 16, 603 + belowShift);
   }
 
   const totalsLeft = 420;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...colors.muted);
-  doc.text('PAYMENT SUMMARY', totalsLeft, 519);
+  doc.text('PAYMENT SUMMARY', totalsLeft, 519 + belowShift);
   const summaryRows = [
     ['Invoice total', moneyUsd(total)],
     ['Paid to date', `- ${moneyUsd(deposit)}`],
   ];
   summaryRows.forEach(([label, value], index) => {
-    const y = 548 + index * 25;
+    const y = 548 + belowShift + index * 25;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.2);
     doc.setTextColor(...colors.muted);
@@ -304,26 +330,26 @@ export function createClientInvoicePdf(data, { logoData, globeData }) {
   });
   doc.setDrawColor(...colors.ink);
   doc.setLineWidth(1.2);
-  doc.line(totalsLeft, 589, mainRight, 589);
+  doc.line(totalsLeft, 589 + belowShift, mainRight, 589 + belowShift);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...colors.ink);
-  doc.text(isPaid ? 'STATUS' : 'BALANCE', totalsLeft, 610);
+  doc.text(isPaid ? 'STATUS' : 'BALANCE', totalsLeft, 610 + belowShift);
   doc.setFontSize(18);
-  doc.text(isPaid ? 'PAID' : moneyUsd(remaining), mainRight, 628, { align: 'right' });
+  doc.text(isPaid ? 'PAID' : moneyUsd(remaining), mainRight, 628 + belowShift, { align: 'right' });
 
   // Terms and closing note.
   doc.setDrawColor(...colors.border);
   doc.setLineWidth(0.8);
-  doc.line(mainLeft, 671, mainRight, 671);
+  doc.line(mainLeft, 671 + belowShift, mainRight, 671 + belowShift);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(...colors.ink);
-  doc.text('TERMS & CONDITIONS', mainLeft, 696);
+  doc.text('TERMS & CONDITIONS', mainLeft, 696 + belowShift);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.4);
   doc.setTextColor(...colors.muted);
-  let termY = 719;
+  let termY = 719 + belowShift;
   for (const term of terms.slice(0, 3)) {
     doc.setFillColor(...colors.ink);
     doc.circle(mainLeft + 2, termY - 3, 1.4, 'F');
@@ -331,11 +357,11 @@ export function createClientInvoicePdf(data, { logoData, globeData }) {
     termY += 18;
   }
 
-  doc.line(mainLeft, 790, mainRight, 790);
+  doc.line(mainLeft, 790 + belowShift, mainRight, 790 + belowShift);
   doc.setFontSize(8.2);
   doc.setTextColor(...colors.muted);
-  doc.text('Thank you for choosing The Wiki Studio.', mainLeft, 813);
-  doc.text(`INV-${invoiceNumber}`, mainRight, 813, { align: 'right' });
+  doc.text('Thank you for choosing The Wiki Studio.', mainLeft, 813 + belowShift);
+  doc.text(`INV-${invoiceNumber}`, mainRight, 813 + belowShift, { align: 'right' });
 
   // Full-page Wiki background remains visible everywhere at print-safe opacity.
   doc.saveGraphicsState();
@@ -349,7 +375,7 @@ export function createClientInvoicePdf(data, { logoData, globeData }) {
 export async function downloadClientInvoice(data) {
   const [logoData, globeData] = await Promise.all([
     loadImageDataUrl('/assets/invoice-logo.png'),
-    loadImageDataUrl('/assets/invoice-globe-transparent.png'),
+    loadImageDataUrl('/assets/invoice-globe.png'),
   ]);
   const { doc, filename } = createClientInvoicePdf(data, { logoData, globeData });
   doc.save(filename);

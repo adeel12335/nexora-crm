@@ -5,6 +5,7 @@ const DEFAULTS = {
   whatsapp_notify_late_individuals: '1',
   whatsapp_notify_late_group: '1',
   whatsapp_notify_deadlines_group: '0',
+  whatsapp_notify_card_updates_group: '1',
 };
 
 export async function getSetting(key, fallback = '') {
@@ -38,6 +39,7 @@ export async function getWhatsAppPortalSettings() {
     notifyLateIndividuals: map.whatsapp_notify_late_individuals !== '0',
     notifyLateGroup: map.whatsapp_notify_late_group !== '0',
     notifyDeadlinesGroup: map.whatsapp_notify_deadlines_group === '1',
+    notifyCardUpdatesGroup: map.whatsapp_notify_card_updates_group !== '0',
   };
 }
 
@@ -53,6 +55,9 @@ export async function saveWhatsAppPortalSettings(patch) {
   }
   if (patch.notifyDeadlinesGroup !== undefined) {
     await setSetting('whatsapp_notify_deadlines_group', patch.notifyDeadlinesGroup ? '1' : '0');
+  }
+  if (patch.notifyCardUpdatesGroup !== undefined) {
+    await setSetting('whatsapp_notify_card_updates_group', patch.notifyCardUpdatesGroup ? '1' : '0');
   }
   return getWhatsAppPortalSettings();
 }

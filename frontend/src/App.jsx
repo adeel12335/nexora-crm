@@ -7,6 +7,7 @@ import RoleLayout from './layouts/RoleLayout.jsx';
 
 import LoginPage from './pages/LoginPage.jsx';
 import NotificationsPage from './pages/shared/NotificationsPage.jsx';
+import ProfilePage from './pages/shared/ProfilePage.jsx';
 import TeamAttendancePage from './pages/shared/TeamAttendancePage.jsx';
 import ProductionBoardPage from './pages/shared/ProductionBoardPage.jsx';
 import MailboxesPage from './pages/shared/MailboxesPage.jsx';
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="mailboxes" element={<MailboxesPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<AdminSettings />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
 
             <Route path="/manager" element={<RoleLayout roleKey="manager" />}>
@@ -64,6 +66,7 @@ export default function App() {
               <Route path="earnings" element={<CommissionEarningsPage />} />
               <Route path="mailboxes" element={<MailboxesPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
 
             <Route path="/agent" element={<RoleLayout roleKey="agent" />}>
@@ -74,12 +77,14 @@ export default function App() {
               <Route path="earnings" element={<CommissionEarningsPage />} />
               <Route path="mailboxes" element={<MailboxesPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
 
             <Route path="/production" element={<RoleLayout roleKey="production" />}>
               <Route index element={<ProductionDashboard />} />
               <Route path="board" element={<ProductionBoardPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

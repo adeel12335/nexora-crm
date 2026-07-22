@@ -86,7 +86,7 @@ export default function KanbanBoard() {
         ]);
         if (cancelled) return;
         const users = (usersData.users || usersData || []).filter((u) =>
-          u.isActive !== false && ['agent', 'manager', 'production', 'admin'].includes(u.role)
+          u.isActive !== false && u.role === 'production'
         );
         setAssignees(users.map(toAssignee));
         setCrmClients((clientsData.clients || []).filter((c) => c.isActive !== false));
@@ -271,6 +271,21 @@ export default function KanbanBoard() {
     }
   }
 
+  async function handleDeleteCard(cardId) {
+    const card = cards.find((c) => c.id === cardId);
+    try {
+      await api.deleteProductionCard(token, cardId);
+      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      setSelectedId(null);
+      setDrawerOpen(false);
+      showToast(card ? `Deleted "${card.title}"` : 'Card deleted');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Could not delete card');
+      return false;
+    }
+  }
+
   async function handleAddComment(text) {
     if (!selectedCard) return;
     const entry = {
@@ -433,6 +448,7 @@ export default function KanbanBoard() {
         comments={comments}
         onAddComment={handleAddComment}
         onUpdateCard={handleUpdateCard}
+        onDeleteCard={handleDeleteCard}
         onUploadFiles={handleUploadFiles}
         onRemoveFile={handleRemoveFile}
         onSaveFeedback={handleSaveFeedback}

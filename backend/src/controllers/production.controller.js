@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js';
+import { notifyProductionCardChange } from '../services/notifications.js';
 
 const STAGES = new Set(['new_draft', 'in_progress', 'revision', 'review', 'live', 'done']);
 const TYPES = new Set(['draft', 'revision']);
@@ -119,7 +120,7 @@ async function resolveClient(clientId, clientName, { requireId = false } = {}) {
   return match ? { id: match.id, name: match.name, agentId: match.agent_id } : { id: null, name, agentId: null };
 }
 
-async function assertAssignee(assigneeId) {
+async function assertAssignee(assigneeId, { allowId } = {}) {
   const id = Number(assigneeId);
   if (!Number.isInteger(id) || id <= 0) {
     const err = new Error('Assignee is required');
@@ -132,6 +133,12 @@ async function assertAssignee(assigneeId) {
   );
   if (!user || !user.is_active) {
     const err = new Error('Assignee not found or inactive');
+    err.status = 400;
+    throw err;
+  }
+  const keptExisting = allowId != null && Number(allowId) === id;
+  if (user.role !== 'production' && !keptExisting) {
+    const err = new Error('Assignee must be a production user');
     err.status = 400;
     throw err;
   }
@@ -332,7 +339,7 @@ export async function createCard(req, res) {
   const [result] = await pool.query(
     `INSERT INTO production_cards
       (title, client, client_id, type, stage, assignee_id, priority, priority_key, description, live_url, extras_json, due_date, comments_count, attachments_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       titleTrim,
       clientName,
@@ -385,7 +392,7 @@ export async function updateCard(req, res) {
   const priorityKey = next.priority === true ? 'high' : (next.priority === false ? 'none' : next.priority);
   if (!PRIORITIES.has(priorityKey)) return res.status(400).json({ error: 'Invalid priority' });
 
-  const safeAssigneeId = await assertAssignee(next.assigneeId);
+  const safeAssigneeId = await assertAssignee(next.assigneeId, { allowId: existing.assignee_id });
   const resolved = await resolveClient(next.clientId, next.client, { requireId: true });
   const clientName = resolved.name;
 
@@ -412,7 +419,7 @@ export async function updateCard(req, res) {
   await pool.query(
     `UPDATE production_cards SET
       title = ?, client = ?, client_id = ?, type = ?, stage = ?, assignee_id = ?,
-      priority = ?, priority_key = ?, description = ?, live_url = ?, extras_json = CAST(? AS JSON),
+      priority = ?, priority_key = ?, description = ?, live_url = ?, extras_json = ?,
       due_date = ?, comments_count = ?, attachments_count = ?
      WHERE id = ?`,
     [
@@ -440,7 +447,35 @@ export async function updateCard(req, res) {
   }
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
-  res.json({ card: toCard(row) });
+  const card = toCard(row);
+
+  const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
+  const stageChanged = existing.stage !== next.stage;
+  const priorityChanged = prevPriority !== priorityKey;
+  if (stageChanged || priorityChanged) {
+    (async () => {
+      const [[assignee]] = await pool.query(
+        'SELECT whatsapp_number FROM users WHERE id = ?',
+        [safeAssigneeId],
+      );
+      await notifyProductionCardChange({
+        userId: card.assignee?.id,
+        whatsappNumber: assignee?.whatsapp_number || null,
+        cardTitle: card.title,
+        clientName: card.client,
+        assigneeName: card.assignee?.name,
+        relatedCardId: card.id,
+        prevStage: existing.stage,
+        nextStage: next.stage,
+        prevPriority,
+        nextPriority: priorityKey,
+      });
+    })().catch((err) => {
+      console.error('[production-update-notify]', err.message);
+    });
+  }
+
+  res.json({ card });
 }
 
 export async function deleteCard(req, res) {

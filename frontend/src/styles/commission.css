@@ -238,6 +238,32 @@ label .fancy-select,
 .month-filter--day .month-filter-trigger {
   min-width: 148px;
 }
+.month-filter--form {
+  width: 100%;
+  min-width: 0;
+}
+.month-filter--form .month-filter-trigger {
+  min-width: 0;
+  height: auto;
+  min-height: 42px;
+  box-shadow: none;
+}
+label .month-filter,
+.field .month-filter,
+.form-grid .month-filter,
+.checkin-emails-label .month-filter,
+.inline-form .month-filter {
+  width: 100%;
+  min-width: 0;
+}
+.detail-form .month-filter-trigger,
+.modal .month-filter-trigger,
+.checkin-emails-label .month-filter-trigger,
+.inline-form .month-filter-trigger {
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: none;
+}
 .commission-filters {
   display: flex;
   align-items: flex-start;
@@ -321,7 +347,7 @@ label .fancy-select,
 }
 
 .month-filter-popper {
-  z-index: 80 !important;
+  z-index: 120 !important;
 }
 .react-datepicker.month-filter-calendar {
   font-family: inherit;
@@ -343,6 +369,35 @@ label .fancy-select,
 }
 .react-datepicker.month-filter-calendar .react-datepicker__navigation-icon::before {
   border-color: var(--muted);
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day-name {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day {
+  border-radius: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day--selected,
+.react-datepicker.month-filter-calendar .react-datepicker__day--keyboard-selected {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day--today {
+  font-weight: 800;
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day--disabled {
+  color: var(--muted);
+  opacity: 0.45;
+}
+.react-datepicker.month-filter-calendar .react-datepicker__day--outside-month {
+  color: var(--muted);
+  opacity: 0.5;
 }
 .react-datepicker.month-filter-calendar .react-datepicker__month-text,
 .react-datepicker.month-filter-calendar .react-datepicker__year-text {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
 import FancySelect from '../filters/FancySelect.jsx';
+import { DayFilter } from '../filters/MonthFilter.jsx';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import BoardAlertModal from './BoardAlertModal.jsx';
 import {
@@ -33,6 +34,7 @@ export default function CardDrawer({
   comments,
   onAddComment,
   onUpdateCard,
+  onDeleteCard,
   onUploadFiles,
   onRemoveFile,
   onSaveFeedback,
@@ -47,6 +49,8 @@ export default function CardDrawer({
   const [comment, setComment] = useState('');
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [edit, setEdit] = useState(null);
   const [feedbackForm, setFeedbackForm] = useState(null);
   const [dirty, setDirty] = useState(false);
@@ -56,6 +60,8 @@ export default function CardDrawer({
     setTab('details');
     setComment('');
     setDirty(false);
+    setConfirmDeleteCard(false);
+    setDeleting(false);
     setEdit({
       title: card.title,
       client: card.client,
@@ -351,19 +357,28 @@ export default function CardDrawer({
                     fullWidth
                     value={edit.assigneeId}
                     onChange={(v) => updateEdit('assigneeId', v)}
-                    placeholder="Search assignee…"
-                    options={(assignees.length ? assignees : (card.assignee ? [card.assignee] : [])).map((a) => ({
-                      value: String(a.id),
-                      label: a.name,
-                    }))}
+                    placeholder="Search production user…"
+                    options={(() => {
+                      const people = assignees.length ? [...assignees] : [];
+                      if (card.assignee && !people.some((a) => Number(a.id) === Number(card.assignee.id))) {
+                        people.unshift(card.assignee);
+                      }
+                      return people.map((a) => ({
+                        value: String(a.id),
+                        label: a.name,
+                      }));
+                    })()}
                   />
                 </label>
                 <label>
                   Due date
-                  <input
-                    type="date"
+                  <DayFilter
                     value={edit.dueDate}
-                    onChange={(e) => updateEdit('dueDate', e.target.value)}
+                    onChange={(dueDate) => updateEdit('dueDate', dueDate)}
+                    placeholder="Select due date"
+                    allowFuture
+                    clearable={false}
+                    className="month-filter--form"
                   />
                 </label>
               </div>
@@ -506,14 +521,24 @@ export default function CardDrawer({
 
         <footer className="detail-footer">
           {tab === 'details' && (
-            <button
-              type="submit"
-              form="card-edit-form"
-              className="primary-btn detail-save-btn"
-              disabled={!dirty}
-            >
-              {dirty ? 'Save changes' : 'No changes yet'}
-            </button>
+            <div className="detail-footer-actions">
+              <button
+                type="button"
+                className="secondary-btn detail-delete-btn"
+                onClick={() => setConfirmDeleteCard(true)}
+                disabled={deleting}
+              >
+                Delete card
+              </button>
+              <button
+                type="submit"
+                form="card-edit-form"
+                className="primary-btn detail-save-btn"
+                disabled={!dirty || deleting}
+              >
+                {dirty ? 'Save changes' : 'No changes yet'}
+              </button>
+            </div>
           )}
           {tab === 'comments' && (
             <form className="comment-box" onSubmit={handleCommentSubmit} noValidate>
@@ -565,6 +590,28 @@ export default function CardDrawer({
           setConfirmDelete(null);
         }}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <BoardAlertModal
+        open={confirmDeleteCard}
+        title="Delete this card?"
+        message={`"${card.title}" will be permanently removed from the production board.`}
+        tone="warn"
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          if (!onDeleteCard || deleting) return;
+          setDeleting(true);
+          try {
+            const ok = await onDeleteCard(card.id);
+            if (ok) setConfirmDeleteCard(false);
+          } finally {
+            setDeleting(false);
+          }
+        }}
+        onCancel={() => {
+          if (!deleting) setConfirmDeleteCard(false);
+        }}
       />
     </>
   );

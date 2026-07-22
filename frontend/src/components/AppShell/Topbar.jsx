@@ -26,8 +26,11 @@ export default function Topbar({ role, user, onLogout, title, subtitle, onMenuCl
           <Icon id="i-bell" />
           {alertsCount > 0 && <b>{alertsCount}</b>}
         </Link>
-        <button className="top-avatar" aria-label="Sign out" onClick={onLogout}>
+        <Link to={`${role.basePath}/profile`} className="top-avatar" aria-label="My profile">
           <img src={user.avatarUrl || '/assets/avatar-jane.svg'} alt={user.name} />
+        </Link>
+        <button className="icon-btn" aria-label="Sign out" onClick={onLogout}>
+          <Icon id="i-logout" />
         </button>
       </div>
     </header>

@@ -441,6 +441,21 @@
   border-top: 1px solid var(--border);
   background: var(--canvas);
 }
+.detail-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.detail-footer-actions .detail-save-btn { flex: 1; }
+.detail-delete-btn {
+  flex-shrink: 0;
+  color: var(--red, #c92471);
+  border-color: color-mix(in srgb, var(--red, #c92471) 35%, var(--border));
+}
+.detail-delete-btn:hover:not(:disabled) {
+  border-color: var(--red, #c92471);
+  background: rgba(201, 36, 113, 0.06);
+}
 .detail-save-btn { width: 100%; min-height: 46px; }
 .comment-box {
   display: flex;

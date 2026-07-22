@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { slicePage, pageMeta, DEFAULT_PAGE_SIZE } from '../../hooks/useTableQuery.js';
 import FancySelect from '../../components/filters/FancySelect.jsx';
+import { DayFilter } from '../../components/filters/MonthFilter.jsx';
 import { Icon } from '../../icons/IconSprite.jsx';
 import { productionStages } from '../../data/mockData.js';
 import {
@@ -190,9 +191,7 @@ export default function ClientsPage() {
           list.filter((u) => u.isActive !== false && (u.role === 'agent' || u.role === 'manager'))
         );
         setAssignees(
-          list.filter((u) =>
-            u.isActive !== false && ['production', 'agent', 'manager', 'admin'].includes(u.role)
-          )
+          list.filter((u) => u.isActive !== false && u.role === 'production')
         );
       } catch (err) {
         if (!cancelled) showToast(err.message || 'Failed to load clients');
@@ -1006,10 +1005,10 @@ export default function ClientsPage() {
                   fullWidth
                   value={pushForm.assigneeId}
                   onChange={(assigneeId) => updatePushForm('assigneeId', assigneeId)}
-                  placeholder="Select assignee…"
+                  placeholder="Select production user…"
                   options={assignees.map((a) => ({
                     value: String(a.id),
-                    label: `${a.name} (${a.role})`,
+                    label: a.name,
                   }))}
                 />
               </label>
@@ -1026,11 +1025,13 @@ export default function ClientsPage() {
 
             <label className="checkin-emails-label">
               Due date
-              <input
-                type="date"
-                required
+              <DayFilter
                 value={pushForm.dueDate}
-                onChange={(e) => updatePushForm('dueDate', e.target.value)}
+                onChange={(dueDate) => updatePushForm('dueDate', dueDate)}
+                placeholder="Select due date"
+                allowFuture
+                clearable={false}
+                className="month-filter--form"
               />
             </label>
 
@@ -1217,10 +1218,12 @@ export default function ClientsPage() {
             </label>
             <label className="checkin-emails-label">
               Payment date
-              <input
-                type="date"
+              <DayFilter
                 value={payForm.paymentDate}
-                onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })}
+                onChange={(paymentDate) => setPayForm({ ...payForm, paymentDate })}
+                placeholder="Select payment date"
+                clearable={false}
+                className="month-filter--form"
               />
             </label>
             <label className="checkin-emails-label">

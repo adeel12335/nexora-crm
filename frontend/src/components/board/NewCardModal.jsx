@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
 import FancySelect from '../filters/FancySelect.jsx';
+import { DayFilter } from '../filters/MonthFilter.jsx';
 import BoardAlertModal from './BoardAlertModal.jsx';
 import {
   PRIORITY_OPTIONS,
@@ -88,7 +89,7 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
     e.preventDefault();
     if (submitting) return;
     if (!assignees.length) {
-      setAlert({ title: 'No assignees', errors: ['Add users (agent/production) before creating cards.'], tone: 'error' });
+      setAlert({ title: 'No assignees', errors: ['Add a production user before creating cards.'], tone: 'error' });
       return;
     }
     const assignee = assignees.find((a) => a.id === Number(form.assigneeId)) || assignees[0];
@@ -238,7 +239,7 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
                   fullWidth
                   value={form.assigneeId}
                   onChange={(v) => update('assigneeId', v)}
-                  placeholder="Search assignee…"
+                  placeholder="Search production user…"
                   options={assignees.map((a) => ({ value: String(a.id), label: a.name }))}
                 />
               </label>
@@ -255,10 +256,13 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
 
             <label>
               Due date
-              <input
-                type="date"
+              <DayFilter
                 value={form.dueDate}
-                onChange={(e) => update('dueDate', e.target.value)}
+                onChange={(dueDate) => update('dueDate', dueDate)}
+                placeholder="Select due date"
+                allowFuture
+                clearable={false}
+                className="month-filter--form"
               />
             </label>
 

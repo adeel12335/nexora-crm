@@ -213,3 +213,88 @@ export async function notifyDeadline({
 
   return { ...personal, group };
 }
+
+const STAGE_LABELS = {
+  new_draft: 'New Draft',
+  in_progress: 'In Progress',
+  revision: 'Revision',
+  review: 'Review',
+  live: 'Live',
+  done: 'Done',
+};
+
+const PRIORITY_LABELS = {
+  none: 'None',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
+
+function stageLabel(stage) {
+  return STAGE_LABELS[stage] || String(stage || '').replaceAll('_', ' ');
+}
+
+function priorityLabel(priority) {
+  return PRIORITY_LABELS[priority] || String(priority || 'None');
+}
+
+/**
+ * Stage / priority change → assignee (DM + in-app) + optional WhatsApp group.
+ */
+export async function notifyProductionCardChange({
+  userId,
+  whatsappNumber,
+  cardTitle,
+  clientName,
+  assigneeName,
+  relatedCardId = null,
+  prevStage,
+  nextStage,
+  prevPriority,
+  nextPriority,
+}) {
+  const stageChanged = prevStage !== nextStage;
+  const priorityChanged = prevPriority !== nextPriority;
+  if (!stageChanged && !priorityChanged) {
+    return { skipped: true, reason: 'no_stage_or_priority_change' };
+  }
+
+  const lines = [`"${cardTitle}" for ${clientName}`];
+  if (stageChanged) {
+    lines.push(`Stage: ${stageLabel(prevStage)} → ${stageLabel(nextStage)}`);
+  }
+  if (priorityChanged) {
+    lines.push(`Priority: ${priorityLabel(prevPriority)} → ${priorityLabel(nextPriority)}`);
+  }
+  if (!stageChanged) lines.push(`Stage: ${stageLabel(nextStage)}`);
+  if (!priorityChanged && nextPriority && nextPriority !== 'none') {
+    lines.push(`Priority: ${priorityLabel(nextPriority)}`);
+  }
+  if (assigneeName) lines.push(`Assignee: ${assigneeName}`);
+
+  let title = 'Card updated';
+  if (stageChanged && !priorityChanged) title = 'Stage updated';
+  if (priorityChanged && !stageChanged) title = 'Priority updated';
+
+  const body = lines.join('\n');
+  const settings = await getWhatsAppPortalSettings();
+
+  const personal = await notifyUser({
+    userId,
+    whatsappNumber,
+    type: 'system',
+    tone: priorityChanged && nextPriority === 'high' ? 'red' : 'blue',
+    icon: 'i-production',
+    title,
+    body,
+    relatedCardId,
+    sendWhatsApp: true,
+  });
+
+  let group = null;
+  if (settings.notifyCardUpdatesGroup) {
+    group = await notifyGroup({ title, body, type: 'system', tone: 'blue' });
+  }
+
+  return { ...personal, group };
+}

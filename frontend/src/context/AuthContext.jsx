@@ -55,8 +55,17 @@ export function AuthProvider({ children }) {
     window.localStorage.removeItem(STORAGE_KEY);
   }
 
+  function updateUser(patch) {
+    setAuth((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, user: { ...prev.user, ...patch } };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
   return (
-    <AuthContext.Provider value={{ user: auth?.user ?? null, token: auth?.token ?? null, loading, login, logout }}>
+    <AuthContext.Provider value={{ user: auth?.user ?? null, token: auth?.token ?? null, loading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

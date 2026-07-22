@@ -4,11 +4,19 @@ import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import FancySelect from '../../components/filters/FancySelect.jsx';
+import { DayFilter } from '../../components/filters/MonthFilter.jsx';
 
 const TABS = [
   { id: 'whatsapp', label: 'WhatsApp', icon: 'i-whatsapp' },
   { id: 'attendance', label: 'Attendance rules', icon: 'i-clock' },
   { id: 'cycle', label: 'Commission cycle', icon: 'i-coins' },
+];
+
+const BROADCAST_ROLES = [
+  { value: 'production', label: 'Production' },
+  { value: 'agent', label: 'Agents' },
+  { value: 'manager', label: 'Managers' },
+  { value: 'admin', label: 'Admins' },
 ];
 
 export default function AdminSettings() {
@@ -17,6 +25,7 @@ export default function AdminSettings() {
   const [tab, setTab] = useState('whatsapp');
 
   const [settings, setSettings] = useState(null);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -25,8 +34,16 @@ export default function AdminSettings() {
     notifyLateIndividuals: true,
     notifyLateGroup: true,
     notifyDeadlinesGroup: false,
+    notifyCardUpdatesGroup: true,
   });
   const [testForm, setTestForm] = useState({ to: '', text: '', useGroup: false });
+  const [composeForm, setComposeForm] = useState({
+    title: '',
+    text: '',
+    target: 'group',
+    userIds: [],
+    roles: ['production'],
+  });
 
   const [policyData, setPolicyData] = useState(null);
   const [overrides, setOverrides] = useState([]);
@@ -34,10 +51,11 @@ export default function AdminSettings() {
   const [overrideForm, setOverrideForm] = useState({ cycleStart: '', cycleEnd: '', reason: '' });
 
   const loadAll = useCallback(async () => {
-    const [portal, pol, ov] = await Promise.all([
+    const [portal, pol, ov, usersRes] = await Promise.all([
       api.getPortalSettings(token),
       api.getCyclePolicy(token),
       api.listCycleOverrides(token),
+      api.listUsers(token, '?includeInactive=0&pageSize=200'),
     ]);
     setSettings(portal);
     setWaForm({
@@ -45,7 +63,9 @@ export default function AdminSettings() {
       notifyLateIndividuals: portal.whatsapp?.notifyLateIndividuals !== false,
       notifyLateGroup: portal.whatsapp?.notifyLateGroup !== false,
       notifyDeadlinesGroup: Boolean(portal.whatsapp?.notifyDeadlinesGroup),
+      notifyCardUpdatesGroup: portal.whatsapp?.notifyCardUpdatesGroup !== false,
     });
+    setUsers((usersRes.users || []).filter((u) => u.isActive !== false));
     setPolicyData(pol);
     setOverrides(ov.overrides || []);
     if (pol.current) {
@@ -108,6 +128,44 @@ export default function AdminSettings() {
     }
   }
 
+  async function sendCompose(e) {
+    e.preventDefault();
+    if (!composeForm.text.trim()) {
+      showToast('Write a message first');
+      return;
+    }
+    if (composeForm.target === 'users' && !composeForm.userIds.length) {
+      showToast('Select at least one user');
+      return;
+    }
+    if (composeForm.target === 'roles' && !composeForm.roles.length) {
+      showToast('Select at least one role');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.sendWhatsAppBroadcast(token, {
+        title: composeForm.title.trim() || undefined,
+        text: composeForm.text.trim(),
+        target: composeForm.target,
+        userIds: composeForm.target === 'users'
+          ? composeForm.userIds.map((id) => Number(id))
+          : undefined,
+        roles: composeForm.target === 'roles' ? composeForm.roles : undefined,
+      });
+      showToast(
+        `Broadcast done — sent ${result.sent || 0}, skipped ${result.skipped || 0}, failed ${result.failed || 0}`
+      );
+      if (result.sent) {
+        setComposeForm((f) => ({ ...f, text: '', title: '' }));
+      }
+    } catch (err) {
+      showToast(err.message || 'Broadcast failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitPolicy(e) {
     e.preventDefault();
     setBusy(true);
@@ -128,6 +186,10 @@ export default function AdminSettings() {
 
   async function submitOverride(e) {
     e.preventDefault();
+    if (!overrideForm.cycleStart || !overrideForm.cycleEnd) {
+      showToast('Cycle start and end dates are required');
+      return;
+    }
     setBusy(true);
     try {
       await api.createCycleOverride(token, {
@@ -281,9 +343,95 @@ export default function AdminSettings() {
                 />
                 Production deadlines → WhatsApp group
               </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={waForm.notifyCardUpdatesGroup}
+                  onChange={(e) => setWaForm({ ...waForm, notifyCardUpdatesGroup: e.target.checked })}
+                />
+                Stage / priority changes → WhatsApp group
+              </label>
+              <p className="commission-note">
+                Deadline cron runs every 15 minutes (Asia/Karachi): alerts at 1 day left and 12 hours before due.
+                Stage/priority changes notify the assignee immediately; group post if the toggle above is on.
+              </p>
 
               <button type="submit" className="tool-btn primary" disabled={busy}>
                 Save WhatsApp settings
+              </button>
+            </form>
+
+            <form className="settings-stack" onSubmit={sendCompose} style={{ marginTop: 20 }}>
+              <h3 className="client-detail-title">Compose &amp; send</h3>
+              <p className="commission-note">
+                Send a custom WhatsApp message to the saved group, selected users, or everyone in a role.
+              </p>
+              <label>
+                Title (optional)
+                <input
+                  value={composeForm.title}
+                  onChange={(e) => setComposeForm({ ...composeForm, title: e.target.value })}
+                  placeholder="Production update"
+                  maxLength={200}
+                />
+              </label>
+              <label>
+                Message
+                <textarea
+                  value={composeForm.text}
+                  onChange={(e) => setComposeForm({ ...composeForm, text: e.target.value })}
+                  placeholder="Type your WhatsApp message…"
+                  rows={4}
+                  maxLength={4096}
+                  required
+                />
+              </label>
+              <label>
+                Send to
+                <FancySelect
+                  fullWidth
+                  value={composeForm.target}
+                  onChange={(target) => setComposeForm({ ...composeForm, target })}
+                  options={[
+                    { value: 'group', label: 'Saved WhatsApp group' },
+                    { value: 'users', label: 'Selected users (DM)' },
+                    { value: 'roles', label: 'Everyone in role(s)' },
+                  ]}
+                />
+              </label>
+              {composeForm.target === 'users' && (
+                <label>
+                  Users with WhatsApp
+                  <FancySelect
+                    fullWidth
+                    isMulti
+                    value={composeForm.userIds}
+                    onChange={(userIds) => setComposeForm({ ...composeForm, userIds: userIds || [] })}
+                    placeholder="Search users…"
+                    options={users
+                      .filter((u) => u.whatsappNumber)
+                      .map((u) => ({
+                        value: String(u.id),
+                        label: `${u.name} · ${u.role}`,
+                      }))}
+                  />
+                </label>
+              )}
+              {composeForm.target === 'roles' && (
+                <label>
+                  Roles
+                  <FancySelect
+                    fullWidth
+                    isMulti
+                    value={composeForm.roles}
+                    onChange={(roles) => setComposeForm({ ...composeForm, roles: roles || [] })}
+                    placeholder="Select roles…"
+                    options={BROADCAST_ROLES}
+                  />
+                </label>
+              )}
+              <button type="submit" className="tool-btn primary" disabled={busy || !wa?.configured}>
+                {busy ? 'Sending…' : 'Send WhatsApp message'}
               </button>
             </form>
 
@@ -435,13 +583,26 @@ export default function AdminSettings() {
               <form className="inline-form" onSubmit={submitOverride}>
                 <label>
                   Cycle start
-                  <input type="date" required value={overrideForm.cycleStart}
-                    onChange={(e) => setOverrideForm({ ...overrideForm, cycleStart: e.target.value })} />
+                  <DayFilter
+                    value={overrideForm.cycleStart}
+                    onChange={(cycleStart) => setOverrideForm({ ...overrideForm, cycleStart })}
+                    placeholder="Start date"
+                    allowFuture
+                    clearable={false}
+                    className="month-filter--form"
+                  />
                 </label>
                 <label>
                   Cycle end
-                  <input type="date" required value={overrideForm.cycleEnd}
-                    onChange={(e) => setOverrideForm({ ...overrideForm, cycleEnd: e.target.value })} />
+                  <DayFilter
+                    value={overrideForm.cycleEnd}
+                    onChange={(cycleEnd) => setOverrideForm({ ...overrideForm, cycleEnd })}
+                    placeholder="End date"
+                    allowFuture
+                    clearable={false}
+                    minDate={overrideForm.cycleStart ? new Date(`${overrideForm.cycleStart}T12:00:00`) : undefined}
+                    className="month-filter--form"
+                  />
                 </label>
                 <label>
                   Reason
