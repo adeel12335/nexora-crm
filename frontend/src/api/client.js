@@ -41,6 +41,15 @@ export const api = {
     request(`/mailboxes/${id}`, { method: 'PATCH', body: patch, token }),
   deleteMailbox: (token, id) => request(`/mailboxes/${id}`, { method: 'DELETE', token }),
 
+  // --- follow-ups (agent + manager, own only) ---
+  listFollowUps: (token, status) =>
+    request(`/follow-ups${status ? `?status=${status}` : ''}`, { token }),
+  createFollowUp: (token, followUp) =>
+    request('/follow-ups', { method: 'POST', body: followUp, token }),
+  updateFollowUp: (token, id, patch) =>
+    request(`/follow-ups/${id}`, { method: 'PATCH', body: patch, token }),
+  deleteFollowUp: (token, id) => request(`/follow-ups/${id}`, { method: 'DELETE', token }),
+
   // --- commission rates (own + manager-per-agent, month-wise) ---
   listRates: (token, month) =>
     request(`/commissions/rates${month ? `?month=${month}` : ''}`, { token }),

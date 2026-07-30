@@ -1,0 +1,63 @@
+/* Follow-ups — reuses .panel / .attendance-table / .stat-card conventions. */
+
+.followup-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.followup-form .field { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.followup-form .field--client { flex: 1 1 200px; }
+.followup-form .field--note { flex: 2 1 260px; }
+.followup-form .field--priority { flex: 0 0 130px; }
+.followup-form input,
+.followup-form select {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: 0;
+  transition: 0.18s var(--ease);
+}
+.followup-form input:focus,
+.followup-form select:focus { border-color: var(--accent); background: var(--canvas); }
+.followup-form .followup-add { height: 42px; padding: 0 20px; }
+
+.priority-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.priority-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.priority-chip.high { background: rgba(201, 36, 113, 0.12); color: var(--red); }
+.priority-chip.medium { background: rgba(216, 167, 76, 0.18); color: var(--bronze); }
+.priority-chip.low { background: rgba(106, 159, 181, 0.16); color: var(--blue); }
+
+.followup-note-cell { color: var(--text); font-size: 13px; max-width: 360px; }
+.followup-note-cell.empty { color: var(--faint); }
+.followup-done td { opacity: 0.66; }
+.followup-done .followup-client { text-decoration: line-through; }
+
+.followup-section-label {
+  margin: 22px 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

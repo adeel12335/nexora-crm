@@ -22,6 +22,7 @@ export const roles = {
     nav: [
       { to: '/manager', label: 'Dashboard', icon: 'i-grid', end: true },
       { to: '/manager/clients', label: 'My Clients', icon: 'i-users' },
+      { to: '/manager/follow-ups', label: 'Follow-ups', icon: 'i-message' },
       { to: '/manager/portfolio', label: 'Live Portfolio', icon: 'i-link' },
       { to: '/manager/commissions', label: 'My Team', icon: 'i-users' },
       { to: '/manager/earnings', label: 'My Commission', icon: 'i-deduction' },
@@ -37,6 +38,7 @@ export const roles = {
     nav: [
       { to: '/agent', label: 'Dashboard', icon: 'i-grid', end: true },
       { to: '/agent/clients', label: 'My Clients', icon: 'i-users' },
+      { to: '/agent/follow-ups', label: 'Follow-ups', icon: 'i-message' },
       { to: '/agent/portfolio', label: 'Live Portfolio', icon: 'i-link' },
       { to: '/agent/earnings', label: 'My Commission', icon: 'i-deduction' },
       { to: '/agent/mailboxes', label: 'My Mailboxes', icon: 'i-bell' },
