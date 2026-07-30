@@ -41,7 +41,7 @@ export const api = {
     request(`/mailboxes/${id}`, { method: 'PATCH', body: patch, token }),
   deleteMailbox: (token, id) => request(`/mailboxes/${id}`, { method: 'DELETE', token }),
 
-  // --- follow-ups (agent + manager, own only) ---
+  // --- follow-ups (agent/manager: own; admin: all, read-only) ---
   listFollowUps: (token, status) =>
     request(`/follow-ups${status ? `?status=${status}` : ''}`, { token }),
   createFollowUp: (token, followUp) =>

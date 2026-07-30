@@ -11,32 +11,47 @@ function toFollowUp(row) {
     status: row.status,
     doneAt: row.done_at,
     createdAt: row.created_at,
+    ownerName: row.owner_name ?? null,
+    ownerRole: row.owner_role ?? null,
   };
 }
 
+const FOLLOWUP_SELECT = `
+  SELECT f.*, u.name AS owner_name, u.role AS owner_role
+  FROM follow_ups f
+  JOIN users u ON u.id = f.user_id
+`;
+
 /**
  * GET /api/follow-ups?status=
- * Only ever the caller's own rows. Pending first, then by priority, newest first.
+ * Agents and managers see only their own rows. An admin sees everyone's
+ * (read-only oversight — admin cannot create or edit follow-ups).
+ * Pending first, then by priority, newest first.
  */
 export async function listFollowUps(req, res) {
   const { status } = req.query;
-  const where = ['user_id = ?'];
-  const params = [req.user.id];
+  const where = [];
+  const params = [];
+
+  if (req.user.role !== 'admin') {
+    where.push('f.user_id = ?');
+    params.push(req.user.id);
+  }
 
   if (status) {
     if (!['pending', 'done'].includes(status)) {
       return res.status(400).json({ error: 'status must be pending or done' });
     }
-    where.push('status = ?');
+    where.push('f.status = ?');
     params.push(status);
   }
 
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [rows] = await pool.query(
-    `SELECT * FROM follow_ups
-     WHERE ${where.join(' AND ')}
-     ORDER BY status ASC,
-              FIELD(priority, 'high', 'medium', 'low'),
-              created_at DESC`,
+    `${FOLLOWUP_SELECT} ${clause}
+     ORDER BY f.status ASC,
+              FIELD(f.priority, 'high', 'medium', 'low'),
+              f.created_at DESC`,
     params
   );
 

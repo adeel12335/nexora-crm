@@ -64,6 +64,7 @@ export default function App() {
                 <Route path="production" element={<ProductionBoardPage />} />
                 <Route path="users" element={<UsersPage />} />
                 <Route path="clients" element={<ClientsPage />} />
+                <Route path="follow-ups" element={<FollowUpsPage />} />
                 <Route path="commissions" element={<CommissionEarningsPage />} />
                 <Route path="mailboxes" element={<MailboxesPage />} />
                 <Route path="notifications" element={<NotificationsPage />} />

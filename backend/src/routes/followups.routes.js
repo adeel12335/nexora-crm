@@ -10,11 +10,15 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const followupsRoutes = Router();
 
-// Follow-ups are an outreach tool — only agents and managers keep them, and each
-// person sees only their own (enforced per row in the controller).
-followupsRoutes.use(requireAuth, requireRole('agent', 'manager'));
+followupsRoutes.use(requireAuth);
 
-followupsRoutes.get('/', asyncHandler(listFollowUps));
-followupsRoutes.post('/', asyncHandler(createFollowUp));
-followupsRoutes.patch('/:id', asyncHandler(updateFollowUp));
-followupsRoutes.delete('/:id', asyncHandler(deleteFollowUp));
+// Admin: read-only oversight of everyone's follow-ups.
+// Agents/managers: full CRUD on their own rows.
+followupsRoutes.get(
+  '/',
+  requireRole('admin', 'agent', 'manager'),
+  asyncHandler(listFollowUps)
+);
+followupsRoutes.post('/', requireRole('agent', 'manager'), asyncHandler(createFollowUp));
+followupsRoutes.patch('/:id', requireRole('agent', 'manager'), asyncHandler(updateFollowUp));
+followupsRoutes.delete('/:id', requireRole('agent', 'manager'), asyncHandler(deleteFollowUp));

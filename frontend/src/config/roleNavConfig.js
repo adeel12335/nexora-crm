@@ -7,6 +7,7 @@ export const roles = {
       { to: '/admin', label: 'Dashboard', icon: 'i-grid', end: true },
       { to: '/admin/users', label: 'Users', icon: 'i-users' },
       { to: '/admin/clients', label: 'Clients', icon: 'i-users' },
+      { to: '/admin/follow-ups', label: 'Follow-ups', icon: 'i-message' },
       { to: '/admin/mailboxes', label: 'Mailboxes', icon: 'i-bell' },
       { to: '/admin/attendance', label: 'Attendance', icon: 'i-calendar' },
       { to: '/admin/commissions', label: 'Commissions', icon: 'i-deduction' },
