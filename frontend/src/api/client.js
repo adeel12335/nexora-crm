@@ -24,6 +24,9 @@ export const api = {
   me: (token) => request('/auth/me', { token }),
   updateProfile: (token, patch) => request('/auth/me', { method: 'PATCH', body: patch, token }),
   changePassword: (token, body) => request('/auth/change-password', { method: 'POST', body, token }),
+  switchUser: (token, userId) =>
+    request('/auth/switch-user', { method: 'POST', body: { userId }, token }),
+  switchBack: (token) => request('/auth/switch-back', { method: 'POST', token }),
   // --- users ---
   listUsers: (token, query = '') => request(`/users${query}`, { token }),
   getUser: (token, id) => request(`/users/${id}`, { token }),
