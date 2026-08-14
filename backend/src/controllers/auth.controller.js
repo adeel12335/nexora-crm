@@ -17,6 +17,16 @@ function toPublicUser(row) {
   };
 }
 
+function signToken(payload) {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || '8h',
+  });
+}
+
+function basePayload(user) {
+  return { id: user.id, role: user.role, name: user.name, email: user.email };
+}
+
 export async function login(req, res) {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -40,11 +50,7 @@ export async function login(req, res) {
     return res.status(403).json({ error: 'This account has been deactivated' });
   }
 
-  const payload = { id: user.id, role: user.role, name: user.name, email: user.email };
-  const token = jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  });
-
+  const token = signToken(basePayload(user));
   res.json({ token, user: toPublicUser(user) });
 }
 
@@ -62,8 +68,82 @@ export async function me(req, res) {
     return res.status(403).json({ error: 'This account has been deactivated' });
   }
 
+  const body = { user: toPublicUser(user) };
+  if (req.user.impersonatorId) {
+    body.impersonating = {
+      id: req.user.impersonatorId,
+      name: req.user.impersonatorName || 'Admin',
+    };
+  }
+
   res.set('Cache-Control', 'private, max-age=30');
-  res.json({ user: toPublicUser(user) });
+  res.json(body);
+}
+
+/**
+ * POST /api/auth/switch-user — admin becomes the target user (WP-style).
+ * JWT acts as the target; impersonatorId keeps a path back to the admin.
+ */
+export async function switchUser(req, res) {
+  if (req.user.impersonatorId) {
+    return res.status(403).json({ error: 'Already switched — switch back first' });
+  }
+
+  const userId = Number(req.body?.userId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+  if (userId === req.user.id) {
+    return res.status(400).json({ error: 'Cannot switch to yourself' });
+  }
+
+  const [[target]] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (!target.is_active) {
+    return res.status(403).json({ error: 'Cannot switch to a deactivated account' });
+  }
+
+  const [[admin]] = await pool.query(
+    'SELECT id, name, role, is_active FROM users WHERE id = ?',
+    [req.user.id],
+  );
+  if (!admin || !admin.is_active || admin.role !== 'admin') {
+    return res.status(403).json({ error: 'Only an active admin can switch users' });
+  }
+
+  const token = signToken({
+    ...basePayload(target),
+    impersonatorId: admin.id,
+    impersonatorName: admin.name,
+  });
+
+  res.json({
+    token,
+    user: toPublicUser(target),
+    impersonating: { id: admin.id, name: admin.name },
+  });
+}
+
+/**
+ * POST /api/auth/switch-back — leave impersonation and restore the admin session.
+ */
+export async function switchBack(req, res) {
+  const adminId = req.user.impersonatorId;
+  if (!adminId) {
+    return res.status(400).json({ error: 'Not currently switched to another user' });
+  }
+
+  const [[admin]] = await pool.query('SELECT * FROM users WHERE id = ?', [adminId]);
+  if (!admin) return res.status(404).json({ error: 'Original admin account not found' });
+  if (!admin.is_active) {
+    return res.status(403).json({ error: 'Original admin account has been deactivated' });
+  }
+  if (admin.role !== 'admin') {
+    return res.status(403).json({ error: 'Original account is no longer an admin' });
+  }
+
+  const token = signToken(basePayload(admin));
+  res.json({ token, user: toPublicUser(admin) });
 }
 
 /** PATCH /api/auth/me — a user editing their own name / phone / avatar. */
@@ -107,6 +187,10 @@ export async function updateProfile(req, res) {
 
 /** POST /api/auth/change-password — a user changing their own password. */
 export async function changePassword(req, res) {
+  if (req.user.impersonatorId) {
+    return res.status(403).json({ error: 'Cannot change password while switched to another user' });
+  }
+
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'currentPassword and newPassword are required' });

@@ -24,6 +24,9 @@ export const api = {
   me: (token) => request('/auth/me', { token }),
   updateProfile: (token, patch) => request('/auth/me', { method: 'PATCH', body: patch, token }),
   changePassword: (token, body) => request('/auth/change-password', { method: 'POST', body, token }),
+  switchUser: (token, userId) =>
+    request('/auth/switch-user', { method: 'POST', body: { userId }, token }),
+  switchBack: (token) => request('/auth/switch-back', { method: 'POST', token }),
   // --- users ---
   listUsers: (token, query = '') => request(`/users${query}`, { token }),
   getUser: (token, id) => request(`/users/${id}`, { token }),
@@ -40,6 +43,15 @@ export const api = {
   updateMailbox: (token, id, patch) =>
     request(`/mailboxes/${id}`, { method: 'PATCH', body: patch, token }),
   deleteMailbox: (token, id) => request(`/mailboxes/${id}`, { method: 'DELETE', token }),
+
+  // --- follow-ups (agent/manager: own; admin: all, read-only) ---
+  listFollowUps: (token, status) =>
+    request(`/follow-ups${status ? `?status=${status}` : ''}`, { token }),
+  createFollowUp: (token, followUp) =>
+    request('/follow-ups', { method: 'POST', body: followUp, token }),
+  updateFollowUp: (token, id, patch) =>
+    request(`/follow-ups/${id}`, { method: 'PATCH', body: patch, token }),
+  deleteFollowUp: (token, id) => request(`/follow-ups/${id}`, { method: 'DELETE', token }),
 
   // --- commission rates (own + manager-per-agent, month-wise) ---
   listRates: (token, month) =>

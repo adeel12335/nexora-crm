@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import Sidebar from '../components/AppShell/Sidebar.jsx';
 import Topbar from '../components/AppShell/Topbar.jsx';
+import ImpersonationBanner from '../components/AppShell/ImpersonationBanner.jsx';
 import { roles } from '../config/roleNavConfig.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { AttendanceProvider } from '../hooks/useAttendanceSession.jsx';
@@ -85,6 +86,7 @@ export default function RoleLayout({ roleKey }) {
     <div className="app-shell">
       <Sidebar role={role} user={user} onLogout={handleLogout} open={sidebarOpen} mobile={mobileNav} onNavigate={() => setSidebarOpen(false)} onClose={() => setSidebarOpen(false)} />
       <main className="workspace">
+        <ImpersonationBanner />
         <Topbar role={role} user={user} onLogout={handleLogout} alertsCount={alertsCount} menuOpen={sidebarOpen} onMenuClick={() => setSidebarOpen((open) => !open)} />
         <Outlet context={{ role, user }} />
       </main>

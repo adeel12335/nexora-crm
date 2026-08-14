@@ -14,6 +14,7 @@ const ProductionBoardPage = lazy(() => import('./pages/shared/ProductionBoardPag
 const MailboxesPage = lazy(() => import('./pages/shared/MailboxesPage.jsx'));
 const PortfolioPage = lazy(() => import('./pages/shared/PortfolioPage.jsx'));
 const CommissionEarningsPage = lazy(() => import('./pages/shared/CommissionEarningsPage.jsx'));
+const FollowUpsPage = lazy(() => import('./pages/shared/FollowUpsPage.jsx'));
 
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard.jsx'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
@@ -63,6 +64,7 @@ export default function App() {
                 <Route path="production" element={<ProductionBoardPage />} />
                 <Route path="users" element={<UsersPage />} />
                 <Route path="clients" element={<ClientsPage />} />
+                <Route path="follow-ups" element={<FollowUpsPage />} />
                 <Route path="commissions" element={<CommissionEarningsPage />} />
                 <Route path="mailboxes" element={<MailboxesPage />} />
                 <Route path="notifications" element={<NotificationsPage />} />
@@ -74,6 +76,7 @@ export default function App() {
                 <Route index element={<ManagerDashboard />} />
                 <Route path="attendance" element={<TeamAttendancePage />} />
                 <Route path="clients" element={<ClientsPage />} />
+                <Route path="follow-ups" element={<FollowUpsPage />} />
                 <Route path="portfolio" element={<PortfolioPage />} />
                 <Route path="commissions" element={<TeamCommission />} />
                 <Route path="earnings" element={<CommissionEarningsPage />} />
@@ -86,6 +89,7 @@ export default function App() {
                 <Route index element={<AgentDashboard />} />
                 <Route path="attendance" element={<AgentAttendance />} />
                 <Route path="clients" element={<ClientsPage />} />
+                <Route path="follow-ups" element={<FollowUpsPage />} />
                 <Route path="portfolio" element={<PortfolioPage />} />
                 <Route path="earnings" element={<CommissionEarningsPage />} />
                 <Route path="mailboxes" element={<MailboxesPage />} />

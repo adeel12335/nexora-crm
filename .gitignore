@@ -3,6 +3,10 @@ dist/
 .env
 *.log
 
+# Local scratch / build output
+output/
+tmp/
+
 # Editor/OS
 .vscode/*
 !.vscode/extensions.json

@@ -11,6 +11,7 @@ import { whatsappRoutes } from './routes/whatsapp.routes.js';
 import { notificationsRoutes } from './routes/notifications.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { productionRoutes } from './routes/production.routes.js';
+import { followupsRoutes } from './routes/followups.routes.js';
 
 export const app = express();
 
@@ -64,6 +65,7 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/production', productionRoutes);
+app.use('/api/follow-ups', followupsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

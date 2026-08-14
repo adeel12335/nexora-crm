@@ -13,6 +13,14 @@ function loadStored() {
   }
 }
 
+function persist(next) {
+  if (!next) {
+    window.localStorage.removeItem(STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(loadStored);
   // Don't block first paint when we already have a cached session.
@@ -30,15 +38,20 @@ export function AuthProvider({ children }) {
       // Keep showing cached user while we revalidate.
       if (!cancelled) setLoading(false);
       try {
-        const { user } = await api.me(stored.token);
+        const data = await api.me(stored.token);
         if (!cancelled) {
-          setAuth({ token: stored.token, user });
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: stored.token, user }));
+          const next = {
+            token: stored.token,
+            user: data.user,
+            impersonating: data.impersonating || null,
+          };
+          setAuth(next);
+          persist(next);
         }
       } catch {
         if (!cancelled) {
           setAuth(null);
-          window.localStorage.removeItem(STORAGE_KEY);
+          persist(null);
         }
       }
     }
@@ -49,27 +62,64 @@ export function AuthProvider({ children }) {
 
   async function login(email, password) {
     const { token, user } = await api.login(email, password);
-    setAuth({ token, user });
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user }));
+    const next = { token, user, impersonating: null };
+    setAuth(next);
+    persist(next);
     return user;
   }
 
   function logout() {
     setAuth(null);
-    window.localStorage.removeItem(STORAGE_KEY);
+    persist(null);
   }
 
   function updateUser(patch) {
     setAuth((prev) => {
       if (!prev) return prev;
       const next = { ...prev, user: { ...prev.user, ...patch } };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      persist(next);
       return next;
     });
   }
 
+  /** Admin → browse as another user. Returns the target user. */
+  async function switchToUser(userId) {
+    if (!auth?.token) throw new Error('Not authenticated');
+    const data = await api.switchUser(auth.token, userId);
+    const next = {
+      token: data.token,
+      user: data.user,
+      impersonating: data.impersonating || null,
+    };
+    setAuth(next);
+    persist(next);
+    return data.user;
+  }
+
+  /** Leave impersonation and restore the original admin session. */
+  async function exitImpersonation() {
+    if (!auth?.token) throw new Error('Not authenticated');
+    const data = await api.switchBack(auth.token);
+    const next = { token: data.token, user: data.user, impersonating: null };
+    setAuth(next);
+    persist(next);
+    return data.user;
+  }
+
   return (
-    <AuthContext.Provider value={{ user: auth?.user ?? null, token: auth?.token ?? null, loading, login, logout, updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user: auth?.user ?? null,
+        token: auth?.token ?? null,
+        impersonating: auth?.impersonating ?? null,
+        loading,
+        login,
+        logout,
+        updateUser,
+        switchToUser,
+        exitImpersonation,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

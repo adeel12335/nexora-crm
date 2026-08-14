@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/AppShell/StatCard.jsx';
 import UserFormModal from '../../components/users/UserFormModal.jsx';
 import MonthFilter, { toMonthKey } from '../../components/filters/MonthFilter.jsx';
@@ -18,8 +19,9 @@ const ROLE_OPTIONS = [
 ];
 
 export default function UsersPage() {
-  const { token, user: me } = useAuth();
+  const { token, user: me, switchToUser } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
 
   const [users, setUsers] = useState([]);
   const [managers, setManagers] = useState([]);
@@ -36,6 +38,7 @@ export default function UsersPage() {
   const [historyFor, setHistoryFor] = useState(null);
   const [history, setHistory] = useState({ own: [], managerCut: [] });
   const [removeTarget, setRemoveTarget] = useState(null);
+  const [switchingId, setSwitchingId] = useState(null);
 
   const month = toMonthKey(monthDate);
 
@@ -117,6 +120,21 @@ export default function UsersPage() {
       setError(err.message);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleSwitchTo(row) {
+    setSwitchingId(row.id);
+    setError('');
+    try {
+      const target = await switchToUser(row.id);
+      showToast(`Now viewing as ${target.name}`);
+      navigate(`/${target.role}`, { replace: true });
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message || 'Could not switch user');
+    } finally {
+      setSwitchingId(null);
     }
   }
 
@@ -241,6 +259,15 @@ export default function UsersPage() {
                           </button>
                         )}
                         <button className="tool-btn" disabled={busy} onClick={() => setEditing(row)}>Edit</button>
+                        {row.id !== me.id && row.isActive !== false && (
+                          <button
+                            className="tool-btn"
+                            disabled={busy || switchingId === row.id}
+                            onClick={() => handleSwitchTo(row)}
+                          >
+                            {switchingId === row.id ? 'Switching…' : 'Switch to'}
+                          </button>
+                        )}
                         <button
                           className="tool-btn danger-btn"
                           disabled={busy || row.id === me.id}
