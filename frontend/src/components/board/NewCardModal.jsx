@@ -325,8 +325,15 @@ export default function NewCardModal({ open, stages, assignees = [], crmClients 
 
             <div className="modal-actions">
               <button type="button" className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
-              <button type="submit" className="primary-btn" disabled={submitting}>
-                {submitting ? 'Creating…' : 'Create Card'}
+              <button type="submit" className={`primary-btn${submitting ? ' is-busy' : ''}`} disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Creating…
+                  </>
+                ) : (
+                  'Create Card'
+                )}
               </button>
             </div>
           </form>

@@ -74,6 +74,7 @@ export default function KanbanBoard() {
   const [modalStage, setModalStage] = useState(productionStages[0].id);
   const [activityByCard, setActivityByCard] = useState({});
   const [unreadByCard, setUnreadByCard] = useState({});
+  const [hydratingId, setHydratingId] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const cardsRef = useRef(cards);
   const saveChainsRef = useRef({});
@@ -384,6 +385,7 @@ export default function KanbanBoard() {
     setSelectedId(id);
     setDrawerOpen(true);
     markCardAlertsRead(id);
+    setHydratingId(id);
     // Hydrate full card (file data URLs) in background after light list load.
     // Merge with any optimistic local edits so comments/deliveries don't vanish.
     api.getProductionCard(token, id)
@@ -408,7 +410,10 @@ export default function KanbanBoard() {
             : (server.feedback || local.feedback),
         });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        setHydratingId((current) => (current === id ? null : current));
+      });
   }
 
   function handleDragStart(e, card) {
@@ -543,112 +548,113 @@ export default function KanbanBoard() {
     }
   }
 
-  function handleAddComment(text, files = []) {
+  async function handleAddComment(text, files = []) {
     const card = selectedCard || cardsRef.current.find((c) => c.id === selectedId);
-    if (!card) return;
+    if (!card) return false;
     const cardId = card.id;
     const picked = Array.from(files || []);
 
-    (async () => {
-      let fileEntries = [];
-      try {
-        fileEntries = await Promise.all(picked.map(async (file) => ({
-          id: nextFileId++,
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          url: await readFileAsDataUrl(file),
-          uploadedAt: new Date().toISOString(),
-        })));
-      } catch (err) {
-        showToast(err.message || 'Could not attach files');
-        return;
-      }
-
-      const entry = {
+    let fileEntries = [];
+    try {
+      fileEntries = await Promise.all(picked.map(async (file) => ({
         id: nextFileId++,
-        kind: 'comment',
-        author: user?.name || 'You',
-        avatar: '/assets/avatar-jane.svg',
-        text: String(text || '').trim(),
-        files: fileEntries,
-        time: 'now',
-        createdAt: new Date().toISOString(),
-        _pending: true,
-      };
-      const commentList = [entry, ...(card.commentList || [])];
-      patchCardLocal(cardId, { commentList });
-      pushActivity(cardId, fileEntries.length ? 'added a comment with files' : 'added a comment');
-      showToast('Comment added');
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        url: await readFileAsDataUrl(file),
+        uploadedAt: new Date().toISOString(),
+      })));
+    } catch (err) {
+      showToast(err.message || 'Could not attach files');
+      return false;
+    }
 
-      enqueueCardSave(cardId, async () => {
-        try {
-          const latest = cardsRef.current.find((c) => c.id === cardId);
-          await persistCard(cardId, { commentList: latest?.commentList || commentList }, { sync: false });
-          patchCardLocal(cardId, {
-            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
-              .map((c) => (String(c.id) === String(entry.id) ? { ...c, _pending: false } : c)),
-          });
-          showToast('Comment saved');
-        } catch (err) {
-          patchCardLocal(cardId, {
-            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || commentList)
-              .filter((c) => String(c.id) !== String(entry.id)),
-          });
-          showToast(err.message || 'Could not save comment');
-        }
-      });
-    })();
+    const entry = {
+      id: nextFileId++,
+      kind: 'comment',
+      author: user?.name || 'You',
+      avatar: '/assets/avatar-jane.svg',
+      text: String(text || '').trim(),
+      files: fileEntries,
+      time: 'now',
+      createdAt: new Date().toISOString(),
+      _pending: true,
+    };
+    const commentList = [entry, ...(card.commentList || [])];
+    patchCardLocal(cardId, { commentList });
+    pushActivity(cardId, fileEntries.length ? 'added a comment with files' : 'added a comment');
+    showToast('Comment added');
+
+    enqueueCardSave(cardId, async () => {
+      try {
+        const latest = cardsRef.current.find((c) => c.id === cardId);
+        await persistCard(cardId, { commentList: latest?.commentList || commentList }, { sync: false });
+        patchCardLocal(cardId, {
+          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
+            .map((c) => (String(c.id) === String(entry.id) ? { ...c, _pending: false } : c)),
+        });
+        showToast('Comment saved');
+      } catch (err) {
+        patchCardLocal(cardId, {
+          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || commentList)
+            .filter((c) => String(c.id) !== String(entry.id)),
+        });
+        showToast(err.message || 'Could not save comment');
+      }
+    });
+    return true;
   }
 
-  function handleUploadFiles(cardId, files) {
+  async function handleUploadFiles(cardId, files) {
     const card = cardsRef.current.find((c) => c.id === cardId);
-    if (!card) return;
+    if (!card) return false;
     const existing = card.fileList || [];
     const existingBytes = existing.reduce((sum, f) => sum + Number(f.size || 0), 0);
     const { ok, errors } = validateFiles(files, existing.length, existingBytes);
     if (!ok.length) {
       showToast(errors[0] || 'Upload blocked');
-      return;
+      return false;
     }
     if (errors.length) showToast(errors[0]);
 
-    (async () => {
-      try {
-        const uploaded = await Promise.all(ok.map(async (file) => ({
-          id: nextFileId++,
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          url: await readFileAsDataUrl(file),
-          uploadedAt: new Date().toISOString(),
-        })));
-        const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
-        patchCardLocal(cardId, { fileList: optimisticList });
-        pushActivity(cardId, `uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`);
-        showToast(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`);
+    try {
+      const uploaded = await Promise.all(ok.map(async (file) => ({
+        id: nextFileId++,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        url: await readFileAsDataUrl(file),
+        uploadedAt: new Date().toISOString(),
+        _pending: true,
+      })));
+      const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
+      patchCardLocal(cardId, { fileList: optimisticList });
+      pushActivity(cardId, `uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`);
+      showToast(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`);
 
-        enqueueCardSave(cardId, async () => {
-          try {
-            const serverCard = await fetchFullCard(cardId);
-            const latest = cardsRef.current.find((c) => c.id === cardId);
-            const merged = mergeFileLists(latest?.fileList || optimisticList, serverCard.fileList || [])
-              .slice(0, MAX_FILES_PER_CARD);
-            await persistCard(cardId, { fileList: merged }, { sync: false });
-            patchCardLocal(cardId, { fileList: merged });
-          } catch (err) {
-            const uploadedIds = new Set(uploaded.map((f) => String(f.id)));
-            patchCardLocal(cardId, {
-              fileList: (cardsRef.current.find((c) => c.id === cardId)?.fileList || [])
-                .filter((f) => !uploadedIds.has(String(f.id))),
-            });
-            showToast(err.message || 'Upload failed');
-          }
-        });
-      } catch (err) {
-        showToast(err.message || 'Upload failed');
-      }
-    })();
+      enqueueCardSave(cardId, async () => {
+        try {
+          const serverCard = await fetchFullCard(cardId);
+          const latest = cardsRef.current.find((c) => c.id === cardId);
+          const merged = mergeFileLists(latest?.fileList || optimisticList, serverCard.fileList || [])
+            .slice(0, MAX_FILES_PER_CARD)
+            .map((f) => ({ ...f, _pending: false }));
+          await persistCard(cardId, { fileList: merged }, { sync: false });
+          patchCardLocal(cardId, { fileList: merged });
+        } catch (err) {
+          const uploadedIds = new Set(uploaded.map((f) => String(f.id)));
+          patchCardLocal(cardId, {
+            fileList: (cardsRef.current.find((c) => c.id === cardId)?.fileList || [])
+              .filter((f) => !uploadedIds.has(String(f.id))),
+          });
+          showToast(err.message || 'Upload failed');
+        }
+      });
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Upload failed');
+      return false;
+    }
   }
 
   function handleRemoveFile(cardId, fileId) {
@@ -874,8 +880,6 @@ export default function KanbanBoard() {
         </div>
       </div>
 
-      {loading ? <p className="commission-note">Loading board…</p> : null}
-
       {filterOpen ? (
         <div className="filter-strip">
           {filters.map((f) => (
@@ -886,6 +890,12 @@ export default function KanbanBoard() {
         </div>
       ) : null}
 
+      {loading ? (
+        <div className="board-loading">
+          <div className="app-boot-spinner" aria-hidden="true" />
+          Loading board…
+        </div>
+      ) : (
       <div className="kanban kanban-pipeline">
         {productionStages.map((stage) => (
           <KanbanColumn
@@ -904,6 +914,7 @@ export default function KanbanBoard() {
           />
         ))}
       </div>
+      )}
 
       <CardDrawer
         card={selectedCard}
@@ -927,6 +938,7 @@ export default function KanbanBoard() {
         assignees={assignees}
         crmClients={crmClients}
         onMove={(stageId) => selectedCard && moveCard(selectedCard.id, stageId)}
+        hydrating={hydratingId != null && hydratingId === selectedId}
       />
       <div
         className={`scrim${drawerOpen ? ' visible' : ''}`}

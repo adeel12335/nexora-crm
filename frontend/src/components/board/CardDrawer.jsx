@@ -162,6 +162,7 @@ export default function CardDrawer({
   assignees = [],
   crmClients = [],
   onMove,
+  hydrating = false,
 }) {
   const fileInputRef = useRef(null);
   const deliveryFileInputRef = useRef(null);
@@ -177,6 +178,9 @@ export default function CardDrawer({
   const [deliveryFeedbackDrafts, setDeliveryFeedbackDrafts] = useState({});
   const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [commentBusy, setCommentBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [deliveryFeedbackBusy, setDeliveryFeedbackBusy] = useState(null);
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState(null);
@@ -203,6 +207,9 @@ export default function CardDrawer({
     setDeliveryFiles([]);
     setDeliveryBusy(false);
     setCommentBusy(false);
+    setUploadBusy(false);
+    setFeedbackBusy(false);
+    setDeliveryFeedbackBusy(null);
     setConfirmDeleteCard(false);
     setConfirmDeleteDelivery(null);
     setDeleting(false);
@@ -373,7 +380,7 @@ export default function CardDrawer({
     if (ok) setEditingDesc(false);
   }
 
-  function handleCommentSubmit(e) {
+  async function handleCommentSubmit(e) {
     e.preventDefault();
     if (commentBusy) return;
     const err = validateComment(comment, commentFiles);
@@ -383,12 +390,14 @@ export default function CardDrawer({
     }
     const text = comment.trim();
     const files = commentFiles.slice();
-    setComment('');
-    setCommentFiles([]);
-    if (commentFileInputRef.current) commentFileInputRef.current.value = '';
     setCommentBusy(true);
     try {
-      onAddComment(text, files);
+      const ok = await onAddComment?.(text, files);
+      if (ok !== false) {
+        setComment('');
+        setCommentFiles([]);
+        if (commentFileInputRef.current) commentFileInputRef.current.value = '';
+      }
     } finally {
       setCommentBusy(false);
     }
@@ -445,7 +454,7 @@ export default function CardDrawer({
     setConfirmDeleteComment(null);
   }
 
-  function handleFilePick(e) {
+  async function handleFilePick(e) {
     const picked = e.target.files;
     const existingBytes = files.reduce((sum, f) => sum + Number(f.size || 0), 0);
     const { ok, errors } = validateFiles(picked, files.length, existingBytes);
@@ -455,9 +464,18 @@ export default function CardDrawer({
       return;
     }
     if (errors.length) showErrors('Some files skipped', errors, 'warn');
-    if (ok.length) onUploadFiles(card.id, ok);
-    e.target.value = '';
     setMenu(null);
+    if (ok.length) {
+      setUploadBusy(true);
+      try {
+        await onUploadFiles?.(card.id, ok);
+      } finally {
+        setUploadBusy(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    } else if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   }
 
   async function handleDeliverySubmit(e) {
@@ -515,36 +533,48 @@ export default function CardDrawer({
   }
 
   async function handleDeliveryFeedbackSave(deliveryId) {
+    if (deliveryFeedbackBusy) return;
     const draft = deliveryFeedbackDrafts[deliveryId] || { status: 'none', note: '' };
     const errors = validateDeliveryFeedback(draft);
     if (errors.length) {
       showErrors('Feedback incomplete', errors);
       return;
     }
-    const ok = await onSaveDeliveryFeedback?.(card.id, deliveryId, {
-      status: draft.status,
-      note: String(draft.note || '').trim(),
-      updatedAt: new Date().toISOString(),
-      author: 'You',
-    });
-    if (ok) showErrors('Saved', ['Delivery feedback updated.'], 'success');
+    setDeliveryFeedbackBusy(deliveryId);
+    try {
+      const ok = await onSaveDeliveryFeedback?.(card.id, deliveryId, {
+        status: draft.status,
+        note: String(draft.note || '').trim(),
+        updatedAt: new Date().toISOString(),
+        author: 'You',
+      });
+      if (ok) showErrors('Saved', ['Delivery feedback updated.'], 'success');
+    } finally {
+      setDeliveryFeedbackBusy(null);
+    }
   }
 
   async function handleFeedbackSave(e) {
     e.preventDefault();
+    if (feedbackBusy) return;
     const errors = validateFeedback(feedbackForm);
     if (errors.length) {
       showErrors('Feedback incomplete', errors);
       return;
     }
-    const ok = await onSaveFeedback(card.id, {
-      status: feedbackForm.status,
-      note: String(feedbackForm.note || '').trim(),
-      rating: feedbackForm.rating === '' ? null : Number(feedbackForm.rating),
-      updatedAt: new Date().toISOString(),
-      author: 'You',
-    });
-    if (ok) showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
+    setFeedbackBusy(true);
+    try {
+      const ok = await onSaveFeedback(card.id, {
+        status: feedbackForm.status,
+        note: String(feedbackForm.note || '').trim(),
+        rating: feedbackForm.rating === '' ? null : Number(feedbackForm.rating),
+        updatedAt: new Date().toISOString(),
+        author: 'You',
+      });
+      if (ok) showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
+    } finally {
+      setFeedbackBusy(false);
+    }
   }
 
   function scrollToDelivery() {
@@ -566,6 +596,12 @@ export default function CardDrawer({
         <button type="button" className="card-modal-close" aria-label="Close details" onClick={onClose}>
           <Icon id="i-close" />
         </button>
+        {hydrating ? (
+          <div className="card-modal-hydrating">
+            <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
+            Loading latest details…
+          </div>
+        ) : null}
 
         <div className="card-modal-grid">
           <div className="card-modal-main">
@@ -798,8 +834,15 @@ export default function CardDrawer({
                     autoFocus
                   />
                   <div className="card-desc-actions">
-                    <button type="button" className="primary-btn" onClick={saveDescription} disabled={savingMeta}>
-                      Save
+                    <button type="button" className={`primary-btn${savingMeta ? ' is-busy' : ''}`} onClick={saveDescription} disabled={savingMeta}>
+                      {savingMeta ? (
+                        <>
+                          <span className="btn-spinner" aria-hidden="true" />
+                          Saving…
+                        </>
+                      ) : (
+                        'Save'
+                      )}
                     </button>
                     <button
                       type="button"
@@ -837,8 +880,8 @@ export default function CardDrawer({
                 <h3>
                   <Icon id="i-paperclip" /> Attachments
                 </h3>
-                <button type="button" className="card-ghost-btn" onClick={() => fileInputRef.current?.click()}>
-                  Add
+                <button type="button" className="card-ghost-btn" disabled={uploadBusy} onClick={() => fileInputRef.current?.click()}>
+                  {uploadBusy ? 'Uploading…' : 'Add'}
                 </button>
               </div>
               <input
@@ -848,6 +891,7 @@ export default function CardDrawer({
                 hidden
                 onChange={handleFilePick}
                 accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+                disabled={uploadBusy}
               />
               {files.length ? (
                 <ul className="card-attach-list">
@@ -855,7 +899,7 @@ export default function CardDrawer({
                     const kind = fileKind(file.name);
                     const fileMenu = menu === `file:${file.id}`;
                     return (
-                      <li key={file.id} className="card-attach-row">
+                      <li key={file.id} className={`card-attach-row${file._pending || uploadBusy ? ' is-pending' : ''}`}>
                         <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
                         <div className="card-attach-meta">
                           <strong>{file.name}</strong>
@@ -992,7 +1036,7 @@ export default function CardDrawer({
                 </div>
                 <button
                   type="submit"
-                  className="primary-btn delivery-submit"
+                  className={`primary-btn delivery-submit${deliveryBusy ? ' is-busy' : ''}`}
                   disabled={
                     deliveryBusy
                     || deliveries.length >= MAX_DELIVERIES_PER_CARD
@@ -1097,10 +1141,18 @@ export default function CardDrawer({
                             </label>
                             <button
                               type="button"
-                              className="primary-btn"
+                              className={`primary-btn${deliveryFeedbackBusy === item.id ? ' is-busy' : ''}`}
+                              disabled={Boolean(item._pending) || deliveryFeedbackBusy === item.id}
                               onClick={() => handleDeliveryFeedbackSave(item.id)}
                             >
-                              Save feedback
+                              {deliveryFeedbackBusy === item.id ? (
+                                <>
+                                  <span className="btn-spinner" aria-hidden="true" />
+                                  Saving…
+                                </>
+                              ) : (
+                                'Save feedback'
+                              )}
                             </button>
                           </div>
                         ) : (
@@ -1168,7 +1220,16 @@ export default function CardDrawer({
                       Last updated by {feedback.author || '—'} · {formatStamp(feedback.updatedAt)}
                     </p>
                   )}
-                  <button type="submit" className="primary-btn">Save feedback</button>
+                  <button type="submit" className={`primary-btn${feedbackBusy ? ' is-busy' : ''}`} disabled={feedbackBusy}>
+                    {feedbackBusy ? (
+                      <>
+                        <span className="btn-spinner" aria-hidden="true" />
+                        Saving…
+                      </>
+                    ) : (
+                      'Save feedback'
+                    )}
+                  </button>
                 </form>
               </section>
             ) : null}
@@ -1235,10 +1296,17 @@ export default function CardDrawer({
                 </button>
                 <button
                   type="submit"
-                  className="primary-btn comment-send"
+                  className={`primary-btn comment-send${commentBusy ? ' is-busy' : ''}`}
                   disabled={commentBusy || (!comment.trim() && !commentFiles.length)}
                 >
-                  {commentBusy ? 'Sending…' : 'Send'}
+                  {commentBusy ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Sending…
+                    </>
+                  ) : (
+                    'Send'
+                  )}
                 </button>
               </div>
             </form>

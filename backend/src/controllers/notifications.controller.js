@@ -92,7 +92,10 @@ export async function unreadCards(req, res) {
   );
   const counts = {};
   for (const row of rows) {
-    counts[String(row.cardId)] = Number(row.unread || 0);
+    const cardId = row.cardId ?? row.card_id ?? row.CARDID;
+    const unread = row.unread ?? row.UNREAD ?? 0;
+    if (cardId == null) continue;
+    counts[String(cardId)] = Number(unread) || 0;
   }
   res.json({ counts });
 }

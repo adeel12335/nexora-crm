@@ -31,11 +31,6 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
       onDragStart={(e) => onDragStart(e, card)}
       onDragEnd={onDragEnd}
     >
-      {unreadCount > 0 && (
-        <span className="card-unread-badge" title={`${unreadCount} unread ${unreadCount === 1 ? 'alert' : 'alerts'}`}>
-          {unreadCount > 9 ? '9+' : unreadCount}
-        </span>
-      )}
       {isHighPriority(priority) && <span className="priority-flag" />}
       {showPriority && !isHighPriority(priority) && (
         <span className={`priority-flag priority-${priority}`} />
@@ -74,6 +69,13 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
           </a>
         ) : null}
       </div>
+
+      {unreadCount > 0 ? (
+        <span className="card-updates" title={`${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'}`}>
+          <Icon id="i-bell" />
+          {unreadCount > 99 ? '99+' : unreadCount} {unreadCount === 1 ? 'update' : 'updates'}
+        </span>
+      ) : null}
 
       <div className="card-bottom">
         <img src={card.assignee.avatar} alt="" />
