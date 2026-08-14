@@ -278,6 +278,8 @@ export default function CardDrawer({
     const items = commentList.map((entry) => ({ ...entry, _kind: 'comment' }));
     if (showActivityDetails) {
       for (const entry of activity || []) {
+        const text = String(entry.text || '').trim();
+        if (text === 'added a comment' || text === 'added a comment with files') continue;
         items.push({ ...entry, _kind: 'activity' });
       }
     }
@@ -1020,14 +1022,16 @@ export default function CardDrawer({
                     <ul className="delivery-selected-files">
                       {deliveryFiles.map((file, index) => (
                         <li key={`${file.name}-${file.size}-${index}`}>
+                          <span className="file-icon"><Icon id="i-paperclip" /></span>
                           <span>{file.name} · {formatFileSize(file.size || 0)}</span>
                           <button
                             type="button"
-                            className="text-btn"
+                            className="plain-icon"
                             disabled={deliveryBusy}
+                            aria-label={`Remove ${file.name}`}
                             onClick={() => removeDeliveryFile(index)}
                           >
-                            Remove
+                            <Icon id="i-close" />
                           </button>
                         </li>
                       ))}
@@ -1272,14 +1276,16 @@ export default function CardDrawer({
                 <ul className="card-comment-picked">
                   {commentFiles.map((file, index) => (
                     <li key={`${file.name}-${file.size}-${index}`}>
+                      <span className="file-icon"><Icon id="i-paperclip" /></span>
                       <span>{file.name}</span>
                       <button
                         type="button"
-                        className="text-btn"
+                        className="plain-icon"
                         disabled={commentBusy}
+                        aria-label={`Remove ${file.name}`}
                         onClick={() => removeCommentFile(index)}
                       >
-                        Remove
+                        <Icon id="i-close" />
                       </button>
                     </li>
                   ))}

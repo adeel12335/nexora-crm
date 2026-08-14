@@ -34,6 +34,7 @@ export default function BoardAlertModal({
 
   const list = errors.filter(Boolean);
   const toneClass = `board-alert-${tone}`;
+  const destructive = /^(remove|delete)/i.test(String(confirmLabel || ''));
 
   return (
     <div
@@ -68,7 +69,11 @@ export default function BoardAlertModal({
               {cancelLabel}
             </button>
           ) : null}
-          <button type="button" className="primary-btn" onClick={onConfirm}>
+          <button
+            type="button"
+            className={destructive ? 'primary-btn danger-solid' : 'primary-btn'}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </button>
         </div>

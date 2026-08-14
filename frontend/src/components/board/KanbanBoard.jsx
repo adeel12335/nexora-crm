@@ -139,10 +139,23 @@ export default function KanbanBoard() {
     setActivityByCard((prev) => ({
       ...prev,
       [cardId]: [
-        { id: Date.now() + Math.random(), kind: 'system', author, avatar, text, time: 'now' },
+        { id: Date.now() + Math.random(), kind: 'system', author, avatar, text, time: 'now', createdAt: new Date().toISOString() },
         ...(prev[cardId] || []),
       ],
     }));
+  }
+
+  function pruneCommentAddActivities(cardId) {
+    setActivityByCard((prev) => {
+      const list = prev[cardId];
+      if (!list?.length) return prev;
+      const next = list.filter((item) => {
+        const text = String(item.text || '').trim();
+        return text !== 'added a comment' && text !== 'added a comment with files';
+      });
+      if (next.length === list.length) return prev;
+      return { ...prev, [cardId]: next };
+    });
   }
 
   function replaceCard(updated) {
@@ -523,7 +536,19 @@ export default function KanbanBoard() {
 
   async function handleUpdateCard(cardId, patch) {
     try {
+      const prevCard = cardsRef.current.find((c) => c.id === cardId);
+      const prevComments = prevCard?.commentList || [];
       await persistCard(cardId, patch);
+      if (Object.keys(patch).length === 1 && 'commentList' in patch) {
+        const nextComments = patch.commentList || [];
+        if (nextComments.length < prevComments.length) {
+          pruneCommentAddActivities(cardId);
+          showToast('Comment deleted');
+        } else {
+          showToast('Comment saved');
+        }
+        return true;
+      }
       pushActivity(cardId, 'updated card details');
       showToast('Card updated');
       return true;
@@ -582,7 +607,6 @@ export default function KanbanBoard() {
     };
     const commentList = [entry, ...(card.commentList || [])];
     patchCardLocal(cardId, { commentList });
-    pushActivity(cardId, fileEntries.length ? 'added a comment with files' : 'added a comment');
     showToast('Comment added');
 
     enqueueCardSave(cardId, async () => {
