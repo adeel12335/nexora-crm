@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
 import FancySelect from '../filters/FancySelect.jsx';
 import { DayFilter } from '../filters/MonthFilter.jsx';
@@ -9,8 +9,6 @@ import {
   PRIORITY_OPTIONS,
   formatFileSize,
   fromDateInputValue,
-  isHighPriority,
-  priorityLabel,
   toDateInputValue,
   validateCardForm,
   validateComment,
@@ -20,16 +18,12 @@ import {
   validateFiles,
   MAX_DELIVERIES_PER_CARD,
   MAX_FILES_PER_DELIVERY,
+  MAX_FILES_PER_COMMENT,
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
 
-const TABS = [
-  { id: 'details', label: 'Status', icon: 'i-settings' },
-  { id: 'files', label: 'Files', icon: 'i-paperclip' },
-  { id: 'delivery', label: 'Delivery', icon: 'i-link' },
-  { id: 'comments', label: 'Comments', icon: 'i-message' },
-  { id: 'feedback', label: 'Feedback', icon: 'i-star' },
-];
+const AVATAR_COLORS = ['#E07A3D', '#C45C26', '#7B5EA7', '#3D8B8B', '#C65A79', '#4E9A6A', '#2F6FED', '#B45309'];
+const DESC_COLLAPSE_AT = 280;
 
 function deliveryFeedbackLabel(status) {
   return FEEDBACK_STATUS.find((s) => s.value === status)?.label || 'No feedback yet';
@@ -54,6 +48,96 @@ function deliveryAttachmentList(item) {
     }];
   }
   return [];
+}
+
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function colorFor(name) {
+  let hash = 0;
+  for (const ch of String(name || '')) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function formatStamp(value, fallback = '') {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function fileKind(name) {
+  const ext = String(name || '').split('.').pop()?.toLowerCase() || '';
+  const map = {
+    pdf: { label: 'PDF', tone: 'red' },
+    doc: { label: 'DOC', tone: 'blue' },
+    docx: { label: 'DOCX', tone: 'blue' },
+    xls: { label: 'XLS', tone: 'green' },
+    xlsx: { label: 'XLSX', tone: 'green' },
+    ppt: { label: 'PPT', tone: 'orange' },
+    pptx: { label: 'PPTX', tone: 'orange' },
+    png: { label: 'PNG', tone: 'purple' },
+    jpg: { label: 'JPG', tone: 'purple' },
+    jpeg: { label: 'JPEG', tone: 'purple' },
+    gif: { label: 'GIF', tone: 'purple' },
+    webp: { label: 'WEBP', tone: 'purple' },
+    zip: { label: 'ZIP', tone: 'orange' },
+    rar: { label: 'RAR', tone: 'orange' },
+    mp4: { label: 'MP4', tone: 'purple' },
+    mov: { label: 'MOV', tone: 'purple' },
+    webm: { label: 'WEBM', tone: 'purple' },
+    txt: { label: 'TXT', tone: 'gray' },
+    csv: { label: 'CSV', tone: 'green' },
+  };
+  return map[ext] || { label: (ext || 'FILE').toUpperCase().slice(0, 4), tone: 'gray' };
+}
+
+function InitialsAvatar({ name }) {
+  return (
+    <span className="card-avatar" style={{ background: colorFor(name) }} aria-hidden="true">
+      {initials(name)}
+    </span>
+  );
+}
+
+function ActionBtn({ icon, label, open, onClick, children, ariaLabel }) {
+  return (
+    <div className="card-action-wrap">
+      <button
+        type="button"
+        className={`card-action-btn${open ? ' is-open' : ''}${label ? '' : ' is-icon'}`}
+        onClick={onClick}
+        aria-label={ariaLabel || label}
+      >
+        {icon ? <Icon id={icon} /> : null}
+        {label || null}
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function Popover({ title, onClose, children }) {
+  return (
+    <div className="card-pop" role="dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <header className="card-pop-head">
+        <strong>{title}</strong>
+        <button type="button" className="plain-icon" aria-label="Close" onClick={onClose}>
+          <Icon id="i-close" />
+        </button>
+      </header>
+      <div className="card-pop-body">{children}</div>
+    </div>
+  );
 }
 
 export default function CardDrawer({
@@ -82,8 +166,11 @@ export default function CardDrawer({
   const fileInputRef = useRef(null);
   const deliveryFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
-  const [tab, setTab] = useState('details');
+  const commentFileInputRef = useRef(null);
+  const deliverySectionRef = useRef(null);
+  const [menu, setMenu] = useState(null);
   const [comment, setComment] = useState('');
+  const [commentFiles, setCommentFiles] = useState([]);
   const [deliveryDescription, setDeliveryDescription] = useState('');
   const [deliveryUrl, setDeliveryUrl] = useState('');
   const [deliveryFiles, setDeliveryFiles] = useState([]);
@@ -97,21 +184,34 @@ export default function CardDrawer({
   const [deleting, setDeleting] = useState(false);
   const [edit, setEdit] = useState(null);
   const [feedbackForm, setFeedbackForm] = useState(null);
-  const [dirty, setDirty] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [showActivityDetails, setShowActivityDetails] = useState(true);
+  const [savingMeta, setSavingMeta] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [confirmDeleteComment, setConfirmDeleteComment] = useState(null);
 
   useEffect(() => {
     if (!card) return;
-    setTab('details');
+    setMenu(null);
     setComment('');
+    setCommentFiles([]);
     setDeliveryDescription('');
     setDeliveryUrl('');
     setDeliveryFiles([]);
     setDeliveryBusy(false);
     setCommentBusy(false);
-    setDirty(false);
     setConfirmDeleteCard(false);
     setConfirmDeleteDelivery(null);
     setDeleting(false);
+    setEditingDesc(false);
+    setDescExpanded(false);
+    setShowActivityDetails(true);
+    setEditingCommentId(null);
+    setCommentDraft('');
+    setConfirmDeleteComment(null);
     setEdit({
       title: card.title,
       client: card.client,
@@ -123,6 +223,7 @@ export default function CardDrawer({
       type: card.type,
       liveUrl: card.liveUrl || '',
     });
+    setDescDraft(card.description || '');
     setFeedbackForm({
       status: card.feedback?.status || 'none',
       note: card.feedback?.note || '',
@@ -143,21 +244,55 @@ export default function CardDrawer({
   }, [card?.id, open, card?.deliveryList]);
 
   useEffect(() => {
-    if (tab === 'comments' && open) {
-      const t = setTimeout(() => commentInputRef.current?.focus(), 120);
-      return () => clearTimeout(t);
+    if (!menu) return undefined;
+    function onKey(e) {
+      if (e.key === 'Escape') setMenu(null);
     }
-  }, [tab, open]);
+    function onDown(e) {
+      if (e.target.closest('.card-pop, .card-action-btn, .card-file-more, .portal-select__menu, .month-filter-popper, .react-datepicker')) {
+        return;
+      }
+      setMenu(null);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [menu]);
+
+  const files = card?.fileList || [];
+  const deliveries = card?.deliveryList || [];
+  const commentList = comments || [];
+  const feedback = card?.feedback || { status: 'none' };
+
+  const feed = useMemo(() => {
+    const items = commentList.map((entry) => ({ ...entry, _kind: 'comment' }));
+    if (showActivityDetails) {
+      for (const entry of activity || []) {
+        items.push({ ...entry, _kind: 'activity' });
+      }
+    }
+    items.sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : (a.time === 'now' ? Date.now() : 0);
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : (b.time === 'now' ? Date.now() : 0);
+      return tb - ta;
+    });
+    return items;
+  }, [commentList, activity, showActivityDetails]);
 
   if (!card || !edit) return null;
 
   const deadline = getDeadlineInfo(card.dueDate);
-  const files = card.fileList || [];
-  const deliveries = card.deliveryList || [];
-  const commentList = comments || [];
-  const feedback = card.feedback || { status: 'none' };
   const needsLiveLink = requiresLiveLink(card.stage);
   const showLiveChip = isLiveLikeStage(card.stage) && card.liveUrl;
+  const description = edit.description || '';
+  const descLong = description.length > DESC_COLLAPSE_AT;
+  const people = assignees.length ? [...assignees] : [];
+  if (card.assignee && !people.some((a) => Number(a.id) === Number(card.assignee.id))) {
+    people.unshift(card.assignee);
+  }
 
   function showErrors(title, errors, tone = 'error') {
     setAlert({ title, errors, tone });
@@ -165,29 +300,26 @@ export default function CardDrawer({
 
   function updateEdit(field, value) {
     setEdit((f) => ({ ...f, [field]: value }));
-    setDirty(true);
   }
 
-  function goTab(next) {
-    setTab(next);
+  function toggleMenu(id) {
+    setMenu((current) => (current === id ? null : id));
   }
 
-  async function handleSaveDetails(e) {
-    e?.preventDefault?.();
-    const people = assignees.length ? assignees : (card.assignee ? [card.assignee] : []);
-    const assignee = people.find((a) => a.id === Number(edit.assigneeId)) || card.assignee;
-    const selectedClient = crmClients.find((c) => String(c.id) === String(edit.clientId));
+  async function persistDetails(nextEdit = edit) {
+    const assignee = people.find((a) => a.id === Number(nextEdit.assigneeId)) || card.assignee;
+    const selectedClient = crmClients.find((c) => String(c.id) === String(nextEdit.clientId));
     const payload = {
-      title: edit.title,
-      client: selectedClient?.name || edit.client,
-      clientId: edit.clientId || null,
-      description: edit.description,
-      type: edit.type,
+      title: nextEdit.title,
+      client: selectedClient?.name || nextEdit.client,
+      clientId: nextEdit.clientId || null,
+      description: nextEdit.description,
+      type: nextEdit.type,
       stage: card.stage,
       assignee,
-      priority: edit.priority,
-      dueDate: fromDateInputValue(edit.dueDate),
-      liveUrl: edit.liveUrl,
+      priority: nextEdit.priority,
+      dueDate: fromDateInputValue(nextEdit.dueDate),
+      liveUrl: nextEdit.liveUrl,
     };
     const errors = validateCardForm(payload, {
       allowPastDue: true,
@@ -195,41 +327,122 @@ export default function CardDrawer({
     });
     if (errors.length) {
       showErrors('Cannot save card', errors);
-      return;
+      return false;
     }
-    const ok = await onUpdateCard(card.id, {
-      title: payload.title.trim(),
-      client: payload.client.trim(),
-      clientId: payload.clientId ? Number(payload.clientId) : null,
-      description: String(payload.description || '').trim(),
-      type: payload.type,
-      assignee,
-      priority: payload.priority,
-      dueDate: payload.dueDate,
-      liveUrl: String(payload.liveUrl || '').trim(),
-    });
-    if (ok) {
-      setDirty(false);
-      showErrors('Saved', ['Card details updated.'], 'success');
+    setSavingMeta(true);
+    try {
+      const ok = await onUpdateCard(card.id, {
+        title: payload.title.trim(),
+        client: payload.client.trim(),
+        clientId: payload.clientId ? Number(payload.clientId) : null,
+        description: String(payload.description || '').trim(),
+        type: payload.type,
+        assignee,
+        priority: payload.priority,
+        dueDate: payload.dueDate,
+        liveUrl: String(payload.liveUrl || '').trim(),
+      });
+      return ok;
+    } finally {
+      setSavingMeta(false);
     }
+  }
+
+  async function patchAndSave(patch) {
+    const next = { ...edit, ...patch };
+    setEdit(next);
+    return persistDetails(next);
+  }
+
+  async function handleTitleBlur() {
+    if (!canEditMeta || savingMeta) return;
+    if (String(edit.title || '').trim() === String(card.title || '').trim()) return;
+    await persistDetails();
+  }
+
+  function startEditDescription() {
+    setDescDraft(edit.description || '');
+    setEditingDesc(true);
+    setMenu(null);
+  }
+
+  async function saveDescription() {
+    const next = { ...edit, description: descDraft };
+    setEdit(next);
+    const ok = await persistDetails(next);
+    if (ok) setEditingDesc(false);
   }
 
   function handleCommentSubmit(e) {
     e.preventDefault();
     if (commentBusy) return;
-    const err = validateComment(comment);
+    const err = validateComment(comment, commentFiles);
     if (err) {
       showErrors('Comment not added', [err]);
       return;
     }
     const text = comment.trim();
+    const files = commentFiles.slice();
     setComment('');
+    setCommentFiles([]);
+    if (commentFileInputRef.current) commentFileInputRef.current.value = '';
     setCommentBusy(true);
     try {
-      onAddComment(text);
+      onAddComment(text, files);
     } finally {
       setCommentBusy(false);
     }
+  }
+
+  function handleCommentFilePick(e) {
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    setCommentFiles((prev) => {
+      const merged = [...prev];
+      for (const file of picked) {
+        if (merged.length >= MAX_FILES_PER_COMMENT) break;
+        const duplicate = merged.some((f) => f.name === file.name && f.size === file.size);
+        if (!duplicate) merged.push(file);
+      }
+      return merged.slice(0, MAX_FILES_PER_COMMENT);
+    });
+    e.target.value = '';
+  }
+
+  function removeCommentFile(index) {
+    setCommentFiles((prev) => prev.filter((_, i) => i !== index));
+    if (commentFileInputRef.current) commentFileInputRef.current.value = '';
+  }
+
+  function handleReply(entry) {
+    const mention = `@${entry.author} `;
+    setComment((current) => (current.startsWith(mention) ? current : mention + current));
+    commentInputRef.current?.focus();
+  }
+
+  function startEditComment(entry) {
+    setEditingCommentId(entry.id);
+    setCommentDraft(entry.text || '');
+  }
+
+  async function saveEditComment(entry) {
+    const nextText = commentDraft.trim();
+    const err = validateComment(nextText);
+    if (err) {
+      showErrors('Comment not saved', [err]);
+      return;
+    }
+    const nextList = commentList.map((item) => (
+      String(item.id) === String(entry.id) ? { ...item, text: nextText } : item
+    ));
+    const ok = await onUpdateCard(card.id, { commentList: nextList });
+    if (ok) setEditingCommentId(null);
+  }
+
+  async function removeComment(entry) {
+    const nextList = commentList.filter((item) => String(item.id) !== String(entry.id));
+    await onUpdateCard(card.id, { commentList: nextList });
+    setConfirmDeleteComment(null);
   }
 
   function handleFilePick(e) {
@@ -244,6 +457,7 @@ export default function CardDrawer({
     if (errors.length) showErrors('Some files skipped', errors, 'warn');
     if (ok.length) onUploadFiles(card.id, ok);
     e.target.value = '';
+    setMenu(null);
   }
 
   async function handleDeliverySubmit(e) {
@@ -257,7 +471,6 @@ export default function CardDrawer({
       showErrors('Cannot add delivery', result.errors);
       return;
     }
-    // Clear form immediately so UI feels instant; save continues in background.
     const payload = {
       description: result.description,
       url: result.url,
@@ -334,252 +547,299 @@ export default function CardDrawer({
     if (ok) showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
   }
 
+  function scrollToDelivery() {
+    setMenu(null);
+    requestAnimationFrame(() => {
+      deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   return (
     <>
-      <aside className={`detail-panel${open ? ' open' : ''}`} aria-label="Card details" aria-hidden={!open}>
-        <header className="detail-header">
-          <div className="detail-top">
-            <div className="tag-row">
-              <span className="tag tag-blue">{stage?.title}</span>
-              <span className={`tag ${card.type === 'revision' ? 'tag-orange' : 'tag-blue'}`}>
-                {card.type === 'draft' ? 'Draft' : 'Revision'}
+      <aside
+        className={`detail-panel card-modal${open ? ' open' : ''}`}
+        aria-label="Card details"
+        aria-hidden={!open}
+        role="dialog"
+        aria-modal={open}
+      >
+        <button type="button" className="card-modal-close" aria-label="Close details" onClick={onClose}>
+          <Icon id="i-close" />
+        </button>
+
+        <div className="card-modal-grid">
+          <div className="card-modal-main">
+            <header className="card-modal-title">
+              <span className="card-type-icon" aria-hidden="true">
+                <Icon id={card.type === 'revision' ? 'i-revision' : 'i-kanban'} />
               </span>
-              {edit.priority !== 'none' && (
-                <span className={`tag ${isHighPriority(edit.priority) ? 'tag-red' : 'tag-orange'}`}>
-                  {priorityLabel(edit.priority)}
-                </span>
-              )}
-              {isLiveLikeStage(card.stage) && <span className="tag tag-live">Live</span>}
-            </div>
-            <button type="button" className="plain-icon" aria-label="Close details" onClick={onClose}>
-              <Icon id="i-close" />
-            </button>
-          </div>
+              <div className="card-title-block">
+                {canEditMeta ? (
+                  <input
+                    className="card-title-input"
+                    value={edit.title}
+                    onChange={(e) => updateEdit('title', e.target.value)}
+                    onBlur={handleTitleBlur}
+                    maxLength={120}
+                    aria-label="Card title"
+                  />
+                ) : (
+                  <h2>{card.title}</h2>
+                )}
+                <button
+                  type="button"
+                  className="card-client-link"
+                  onClick={() => toggleMenu('client')}
+                >
+                  in {stage?.title || edit.client || 'board'}
+                  {edit.client ? ` · ${edit.client}` : ''}
+                </button>
+                {showLiveChip ? (
+                  <a className="live-link-chip" href={card.liveUrl} target="_blank" rel="noreferrer">
+                    <Icon id="i-link" /> Open live site
+                  </a>
+                ) : null}
+                {menu === 'client' ? (
+                  <Popover title="Client & live link" onClose={() => setMenu(null)}>
+                    <label>
+                      Client {crmClients.length ? <span className="field-hint">(required)</span> : null}
+                      {crmClients.length ? (
+                        <FancySelect
+                          fullWidth
+                          isClearable
+                          value={edit.clientId}
+                          onChange={(clientId) => {
+                            const selected = crmClients.find((c) => String(c.id) === String(clientId));
+                            patchAndSave({
+                              clientId: clientId || '',
+                              client: selected?.name || '',
+                            });
+                          }}
+                          placeholder="Search and select a CRM client…"
+                          options={crmClients.map((c) => ({
+                            value: String(c.id),
+                            label: c.agentName ? `${c.name} · ${c.agentName}` : c.name,
+                          }))}
+                        />
+                      ) : (
+                        <input
+                          value={edit.client}
+                          onChange={(e) => updateEdit('client', e.target.value)}
+                          onBlur={() => persistDetails()}
+                          maxLength={80}
+                          disabled={!canEditMeta}
+                        />
+                      )}
+                    </label>
+                    <label>
+                      Live link {needsLiveLink ? <span className="field-hint">(required)</span> : <span className="field-hint">(optional)</span>}
+                      <input
+                        type="url"
+                        value={edit.liveUrl}
+                        onChange={(e) => updateEdit('liveUrl', e.target.value)}
+                        onBlur={() => persistDetails()}
+                        placeholder="https://client-site.com"
+                      />
+                    </label>
+                  </Popover>
+                ) : null}
+              </div>
+            </header>
 
-          <h2>{card.title}</h2>
-          <span className="detail-sub">{card.client}</span>
-          {card.clientAgentName ? (
-            <span className="detail-owner">Client of {card.clientAgentName}</span>
-          ) : null}
-          {showLiveChip ? (
-            <a className="live-link-chip" href={card.liveUrl} target="_blank" rel="noreferrer">
-              <Icon id="i-link" /> Open live site
-            </a>
-          ) : null}
+            <div className="card-action-row">
+              <ActionBtn icon="i-plus" label="Add" open={menu === 'add'} onClick={() => toggleMenu('add')}>
+                {menu === 'add' ? (
+                  <Popover title="Add to card" onClose={() => setMenu(null)}>
+                    <button type="button" className="card-pop-item" onClick={() => fileInputRef.current?.click()}>
+                      <Icon id="i-paperclip" /> Attachment
+                    </button>
+                    <button type="button" className="card-pop-item" onClick={scrollToDelivery}>
+                      <Icon id="i-check" /> Checklist
+                    </button>
+                    <button type="button" className="card-pop-item" onClick={() => setMenu('labels')}>
+                      <Icon id="i-tag" /> Labels
+                    </button>
+                    <button type="button" className="card-pop-item" onClick={() => setMenu('dates')}>
+                      <Icon id="i-clock" /> Dates
+                    </button>
+                    <button type="button" className="card-pop-item" onClick={() => setMenu('members')}>
+                      <Icon id="i-users" /> Members
+                    </button>
+                  </Popover>
+                ) : null}
+              </ActionBtn>
 
-          <div className="detail-facts">
-            <button type="button" className="detail-fact" onClick={() => goTab('details')}>
-              <Icon id="i-users" />
-              <div><span>Assignee</span><strong>{card.assignee.name}</strong></div>
-            </button>
-            <button type="button" className="detail-fact" onClick={() => goTab('details')}>
-              <Icon id="i-calendar" />
-              <div><span>Due</span><strong>{deadline.label}</strong></div>
-            </button>
-            <button type="button" className="detail-fact" onClick={() => goTab('files')}>
-              <Icon id="i-paperclip" />
-              <div><span>Files</span><strong>{files.length} · open</strong></div>
-            </button>
-            <button type="button" className="detail-fact" onClick={() => goTab('comments')}>
-              <Icon id="i-message" />
-              <div><span>Comments</span><strong>{commentList.length} · open</strong></div>
-            </button>
-          </div>
-
-          <nav className="detail-tabs" role="tablist" aria-label="Card sections">
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                className={tab === item.id ? 'active' : ''}
-                onClick={() => goTab(item.id)}
-              >
-                <Icon id={item.icon} />
-                <span>
-                  {item.label}
-                  {item.id === 'files' && files.length ? ` (${files.length})` : ''}
-                  {item.id === 'delivery' && deliveries.length ? ` (${deliveries.length})` : ''}
-                  {item.id === 'comments' && commentList.length ? ` (${commentList.length})` : ''}
-                </span>
-              </button>
-            ))}
-          </nav>
-        </header>
-
-        <div className="detail-body">
-          {tab === 'details' && (
-            <form className="detail-form" id="card-edit-form" onSubmit={handleSaveDetails} noValidate>
-              <p className="detail-hint">
-                {canEditMeta
-                  ? <>Edit fields below, then press <strong>Save changes</strong>.</>
-                  : <>Update stage / priority / live link, then press <strong>Save changes</strong>.</>}
-              </p>
-              {canEditMeta ? (
-                <>
-                  <label>
-                    Title
-                    <input
-                      value={edit.title}
-                      onChange={(e) => updateEdit('title', e.target.value)}
-                      maxLength={120}
-                    />
-                  </label>
-                  <label>
-                    Client {crmClients.length ? <span className="field-hint">(required)</span> : null}
-                    {crmClients.length ? (
+              <ActionBtn icon="i-tag" label="Labels" open={menu === 'labels'} onClick={() => toggleMenu('labels')}>
+                {menu === 'labels' ? (
+                  <Popover title="Labels" onClose={() => setMenu(null)}>
+                    {canEditMeta ? (
+                      <label>
+                        Type
+                        <FancySelect
+                          fullWidth
+                          value={edit.type}
+                          onChange={(v) => patchAndSave({ type: v })}
+                          options={[
+                            { value: 'draft', label: 'Draft' },
+                            { value: 'revision', label: 'Revision' },
+                          ]}
+                        />
+                      </label>
+                    ) : null}
+                    <label>
+                      Priority
                       <FancySelect
                         fullWidth
-                        isClearable
-                        value={edit.clientId}
-                        onChange={(clientId) => {
-                          const selected = crmClients.find((c) => String(c.id) === String(clientId));
-                          setEdit((f) => ({
-                            ...f,
-                            clientId: clientId || '',
-                            client: selected?.name || '',
-                          }));
-                          setDirty(true);
+                        value={edit.priority}
+                        onChange={(v) => patchAndSave({ priority: v })}
+                        options={PRIORITY_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
+                      />
+                    </label>
+                    <label>
+                      Move to stage
+                      <FancySelect
+                        fullWidth
+                        value={card.stage}
+                        onChange={(stageId) => {
+                          onMove(stageId);
+                          setMenu(null);
                         }}
-                        placeholder="Search and select a CRM client…"
-                        options={crmClients.map((c) => ({
-                          value: String(c.id),
-                          label: c.agentName ? `${c.name} · ${c.agentName}` : c.name,
-                        }))}
+                        options={stages.map((item) => ({ value: item.id, label: item.title }))}
                       />
+                    </label>
+                  </Popover>
+                ) : null}
+              </ActionBtn>
+
+              <ActionBtn icon="i-clock" label="Dates" open={menu === 'dates'} onClick={() => toggleMenu('dates')}>
+                {menu === 'dates' ? (
+                  <Popover title="Dates" onClose={() => setMenu(null)}>
+                    {canEditMeta ? (
+                      <label>
+                        Due date
+                        <DayFilter
+                          value={edit.dueDate}
+                          onChange={(dueDate) => patchAndSave({ dueDate })}
+                          placeholder="Select due date"
+                          allowFuture
+                          clearable={false}
+                          className="month-filter--form"
+                        />
+                      </label>
                     ) : (
-                      <input
-                        value={edit.client}
-                        onChange={(e) => updateEdit('client', e.target.value)}
-                        maxLength={80}
-                      />
+                      <p className="muted-hint">{deadline.label}</p>
                     )}
-                  </label>
-                  {crmClients.length && !edit.clientId ? (
-                    <p className="muted-hint">Select a client from the CRM list to save.</p>
+                  </Popover>
+                ) : null}
+              </ActionBtn>
+
+              <ActionBtn icon="i-check" label="Checklist" open={false} onClick={scrollToDelivery} />
+
+              <ActionBtn icon="i-users" label="Members" open={menu === 'members'} onClick={() => toggleMenu('members')}>
+                {menu === 'members' ? (
+                  <Popover title="Members" onClose={() => setMenu(null)}>
+                    {canEditMeta ? (
+                      <label>
+                        Assignee
+                        <FancySelect
+                          fullWidth
+                          value={edit.assigneeId}
+                          onChange={(v) => patchAndSave({ assigneeId: v })}
+                          placeholder="Search production user…"
+                          options={people.map((a) => ({ value: String(a.id), label: a.name }))}
+                        />
+                      </label>
+                    ) : (
+                      <p className="muted-hint">{card.assignee?.name || '—'}</p>
+                    )}
+                  </Popover>
+                ) : null}
+              </ActionBtn>
+
+              {onDeleteCard ? (
+                <ActionBtn icon="i-more" label="" ariaLabel="More actions" open={menu === 'more'} onClick={() => toggleMenu('more')}>
+                  {menu === 'more' ? (
+                    <Popover title="Actions" onClose={() => setMenu(null)}>
+                      <button
+                        type="button"
+                        className="card-pop-item is-danger"
+                        onClick={() => {
+                          setMenu(null);
+                          setConfirmDeleteCard(true);
+                        }}
+                      >
+                        Delete card
+                      </button>
+                    </Popover>
                   ) : null}
-                  <label>
-                    Description
-                    <textarea
-                      value={edit.description}
-                      onChange={(e) => updateEdit('description', e.target.value)}
-                      maxLength={2000}
-                      rows={4}
-                    />
-                  </label>
+                </ActionBtn>
+              ) : null}
+            </div>
+
+            <section className="card-section">
+              <div className="card-section-head">
+                <h3>
+                  <Icon id="i-menu" /> Description
+                </h3>
+                {canEditMeta && !editingDesc ? (
+                  <button type="button" className="card-ghost-btn" onClick={startEditDescription}>
+                    Edit
+                  </button>
+                ) : null}
+              </div>
+              {editingDesc ? (
+                <div className="card-desc-edit">
+                  <textarea
+                    value={descDraft}
+                    onChange={(e) => setDescDraft(e.target.value)}
+                    maxLength={2000}
+                    rows={6}
+                    placeholder="Add a more detailed description…"
+                    autoFocus
+                  />
+                  <div className="card-desc-actions">
+                    <button type="button" className="primary-btn" onClick={saveDescription} disabled={savingMeta}>
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="card-ghost-btn"
+                      onClick={() => {
+                        setEditingDesc(false);
+                        setDescDraft(edit.description || '');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : description ? (
+                <>
+                  <p className={`card-desc-body${descLong && !descExpanded ? ' is-collapsed' : ''}`}>
+                    {description}
+                  </p>
+                  {descLong ? (
+                    <button type="button" className={`card-show-more${descExpanded ? ' is-open' : ''}`} onClick={() => setDescExpanded((v) => !v)}>
+                      {descExpanded ? 'Show less' : 'Show more'}
+                      <Icon id="i-chevron-down" />
+                    </button>
+                  ) : null}
                 </>
               ) : (
-                <div className="detail-readonly">
-                  <p><span>Title</span><strong>{card.title}</strong></p>
-                  <p><span>Client</span><strong>{card.client}</strong></p>
-                  {card.description ? <p><span>Description</span><strong>{card.description}</strong></p> : null}
-                </div>
+                <button type="button" className="card-desc-empty" onClick={canEditMeta ? startEditDescription : undefined}>
+                  {canEditMeta ? 'Add a more detailed description…' : 'No description'}
+                </button>
               )}
-              <label>
-                Live link {needsLiveLink ? <span className="field-hint">(required)</span> : <span className="field-hint">(for Live / portfolio)</span>}
-                <input
-                  type="url"
-                  value={edit.liveUrl}
-                  onChange={(e) => updateEdit('liveUrl', e.target.value)}
-                  placeholder="https://client-site.com"
-                />
-              </label>
-              <div className="form-grid">
-                {canEditMeta ? (
-                  <label>
-                    Type
-                    <FancySelect
-                      fullWidth
-                      value={edit.type}
-                      onChange={(v) => updateEdit('type', v)}
-                      options={[
-                        { value: 'draft', label: 'Draft' },
-                        { value: 'revision', label: 'Revision' },
-                      ]}
-                    />
-                  </label>
-                ) : null}
-                <label>
-                  Priority
-                  <FancySelect
-                    fullWidth
-                    value={edit.priority}
-                    onChange={(v) => updateEdit('priority', v)}
-                    options={PRIORITY_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
-                  />
-                </label>
-              </div>
-              <div className="form-grid">
-                {canEditMeta ? (
-                  <label>
-                    Assignee
-                    <FancySelect
-                      fullWidth
-                      value={edit.assigneeId}
-                      onChange={(v) => updateEdit('assigneeId', v)}
-                      placeholder="Search production user…"
-                      options={(() => {
-                        const people = assignees.length ? [...assignees] : [];
-                        if (card.assignee && !people.some((a) => Number(a.id) === Number(card.assignee.id))) {
-                          people.unshift(card.assignee);
-                        }
-                        return people.map((a) => ({
-                          value: String(a.id),
-                          label: a.name,
-                        }));
-                      })()}
-                    />
-                  </label>
-                ) : (
-                  <label>
-                    Assignee
-                    <input value={card.assignee?.name || ''} readOnly disabled />
-                  </label>
-                )}
-                {canEditMeta ? (
-                  <label>
-                    Due date
-                    <DayFilter
-                      value={edit.dueDate}
-                      onChange={(dueDate) => updateEdit('dueDate', dueDate)}
-                      placeholder="Select due date"
-                      allowFuture
-                      clearable={false}
-                      className="month-filter--form"
-                    />
-                  </label>
-                ) : (
-                  <label>
-                    Due date
-                    <input value={edit.dueDate || '—'} readOnly disabled />
-                  </label>
-                )}
-              </div>
-              <label>
-                Move to stage
-                <FancySelect
-                  fullWidth
-                  value={card.stage}
-                  onChange={onMove}
-                  options={stages.map((item) => ({ value: item.id, label: item.title }))}
-                />
-              </label>
-            </form>
-          )}
+            </section>
 
-          {tab === 'files' && (
-            <section className="detail-section">
-              <div
-                className="upload-dropzone"
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
-                role="button"
-                tabIndex={0}
-              >
-                <Icon id="i-paperclip" />
-                <strong>Click to upload files</strong>
-                <span>Max 10 files · 5 MB each · 8 MB total · images, docs, video, zip</span>
+            <section className="card-section">
+              <div className="card-section-head">
+                <h3>
+                  <Icon id="i-paperclip" /> Attachments
+                </h3>
+                <button type="button" className="card-ghost-btn" onClick={() => fileInputRef.current?.click()}>
+                  Add
+                </button>
               </div>
               <input
                 ref={fileInputRef}
@@ -590,46 +850,78 @@ export default function CardDrawer({
                 accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
               />
               {files.length ? (
-                <ul className="file-list">
-                  {files.map((file) => (
-                    <li key={file.id} className="file-row">
-                      <div className="file-icon"><Icon id="i-paperclip" /></div>
-                      <div className="file-meta">
-                        <strong>{file.name}</strong>
-                        <span>{formatFileSize(file.size || 0)}</span>
-                      </div>
-                      <div className="file-actions">
-                        {file.url ? (
-                          <a className="tool-btn" href={file.url} download={file.name} target="_blank" rel="noreferrer">
-                            Open
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="plain-icon"
-                          aria-label={`Remove ${file.name}`}
-                          onClick={() => setConfirmDelete(file)}
-                        >
-                          <Icon id="i-close" />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
+                <ul className="card-attach-list">
+                  {files.map((file) => {
+                    const kind = fileKind(file.name);
+                    const fileMenu = menu === `file:${file.id}`;
+                    return (
+                      <li key={file.id} className="card-attach-row">
+                        <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
+                        <div className="card-attach-meta">
+                          <strong>{file.name}</strong>
+                          <span>
+                            {file.uploadedAt
+                              ? `Added ${formatStamp(file.uploadedAt)} · ${formatFileSize(file.size || 0)}`
+                              : formatFileSize(file.size || 0)}
+                          </span>
+                        </div>
+                        <div className="card-attach-actions">
+                          {file.url ? (
+                            <a
+                              className="plain-icon"
+                              href={file.url}
+                              download={file.name}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`Open ${file.name}`}
+                            >
+                              <Icon id="i-external" />
+                            </a>
+                          ) : null}
+                          <div className="card-action-wrap">
+                            <button
+                              type="button"
+                              className="plain-icon card-file-more"
+                              aria-label={`More actions for ${file.name}`}
+                              onClick={() => toggleMenu(`file:${file.id}`)}
+                            >
+                              <Icon id="i-more" />
+                            </button>
+                            {fileMenu ? (
+                              <Popover title="Attachment" onClose={() => setMenu(null)}>
+                                <button
+                                  type="button"
+                                  className="card-pop-item is-danger"
+                                  onClick={() => {
+                                    setMenu(null);
+                                    setConfirmDelete(file);
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              </Popover>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
-                <div className="empty-state">No files yet</div>
+                <p className="card-empty-line">No attachments yet</p>
               )}
             </section>
-          )}
 
-          {tab === 'delivery' && (
-            <section className="detail-section delivery-section">
-              <form className="detail-form delivery-compose" id="delivery-add-form" onSubmit={handleDeliverySubmit} noValidate>
+            <section className="card-section" ref={deliverySectionRef}>
+              <div className="card-section-head">
+                <h3>
+                  <Icon id="i-check" /> Delivery
+                </h3>
+              </div>
+              <form className="detail-form delivery-compose" onSubmit={handleDeliverySubmit} noValidate>
                 <div className="delivery-compose-head">
-                  <h3>Add delivery</h3>
                   <p>Optional description, link, or files — max {MAX_DELIVERIES_PER_CARD} deliveries, {MAX_FILES_PER_DELIVERY} files each.</p>
                 </div>
-
                 <label>
                   Description <span className="field-hint">(optional)</span>
                   <textarea
@@ -641,7 +933,6 @@ export default function CardDrawer({
                     disabled={deliveryBusy}
                   />
                 </label>
-
                 <label>
                   Link <span className="field-hint">(optional)</span>
                   <input
@@ -655,7 +946,6 @@ export default function CardDrawer({
                     disabled={deliveryBusy}
                   />
                 </label>
-
                 <div className="delivery-file-field">
                   <span className="delivery-file-label">
                     Files <span className="field-hint">(optional, up to {MAX_FILES_PER_DELIVERY})</span>
@@ -700,7 +990,6 @@ export default function CardDrawer({
                     </ul>
                   ) : null}
                 </div>
-
                 <button
                   type="submit"
                   className="primary-btn delivery-submit"
@@ -753,7 +1042,6 @@ export default function CardDrawer({
                             </button>
                           </div>
                         </div>
-
                         <div className="delivery-assets">
                           {linkHref ? (
                             <a className="tool-btn" href={linkHref} target="_blank" rel="noreferrer">
@@ -780,7 +1068,6 @@ export default function CardDrawer({
                             <span className="delivery-kind-pill">Note only</span>
                           ) : null}
                         </div>
-
                         {canReviewDelivery ? (
                           <div className="delivery-feedback detail-form">
                             <label>
@@ -824,7 +1111,7 @@ export default function CardDrawer({
                             {fb.note ? <strong>{fb.note}</strong> : null}
                             {fb.updatedAt ? (
                               <span className="muted-hint">
-                                {fb.author || 'Admin'} · {new Date(fb.updatedAt).toLocaleString()}
+                                {fb.author || 'Admin'} · {formatStamp(fb.updatedAt)}
                               </span>
                             ) : null}
                           </div>
@@ -834,147 +1121,207 @@ export default function CardDrawer({
                   })}
                 </ul>
               ) : (
-                <div className="empty-state delivery-empty">No deliveries yet</div>
+                <p className="card-empty-line">No deliveries yet</p>
               )}
             </section>
-          )}
 
-          {tab === 'comments' && (
-            <section className="detail-section activity-section">
-              <p className="detail-hint">Type below and press send to add a comment.</p>
-              {commentList.length || activity.length ? (
-                <div className="comment-feed">
-                  {commentList.map((entry) => (
-                    <div className={`activity is-comment${entry._pending ? ' is-pending' : ''}`} key={entry.id}>
-                      <img src={entry.avatar || '/assets/avatar-jane.svg'} alt="" />
-                      <div>
-                        <p>
-                          <strong>{entry.author}</strong>
-                          {entry._pending ? (
-                            <span className="delivery-pending-pill">
-                              <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
-                              Saving…
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="comment-text">{entry.text}</p>
-                      </div>
-                      <time>{entry.time}</time>
-                    </div>
-                  ))}
-                  {activity.map((entry) => (
-                    <div className="activity" key={entry.id}>
-                      <img src={entry.avatar} alt="" />
-                      <p><strong>{entry.author}</strong> {entry.text}</p>
-                      <time>{entry.time}</time>
-                    </div>
-                  ))}
+            {feedbackForm ? (
+              <section className="card-section">
+                <div className="card-section-head">
+                  <h3>
+                    <Icon id="i-star" /> Feedback
+                  </h3>
                 </div>
-              ) : (
-                <div className="empty-state">No comments yet — be the first</div>
-              )}
-            </section>
-          )}
+                <form className="detail-form" onSubmit={handleFeedbackSave} noValidate>
+                  <label>
+                    Status
+                    <FancySelect
+                      fullWidth
+                      value={feedbackForm.status}
+                      onChange={(status) => setFeedbackForm((f) => ({ ...f, status }))}
+                      options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
+                    />
+                  </label>
+                  <label>
+                    Rating (optional)
+                    <FancySelect
+                      fullWidth
+                      isClearable
+                      value={feedbackForm.rating}
+                      onChange={(rating) => setFeedbackForm((f) => ({ ...f, rating }))}
+                      placeholder="No rating"
+                      options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} / 5` }))}
+                    />
+                  </label>
+                  <label>
+                    Feedback note
+                    <textarea
+                      value={feedbackForm.note}
+                      onChange={(e) => setFeedbackForm((f) => ({ ...f, note: e.target.value }))}
+                      placeholder="What did the client say?"
+                      maxLength={1000}
+                      rows={3}
+                    />
+                  </label>
+                  {feedback.updatedAt && (
+                    <p className="muted-hint">
+                      Last updated by {feedback.author || '—'} · {formatStamp(feedback.updatedAt)}
+                    </p>
+                  )}
+                  <button type="submit" className="primary-btn">Save feedback</button>
+                </form>
+              </section>
+            ) : null}
+          </div>
 
-          {tab === 'feedback' && feedbackForm && (
-            <form className="detail-form" id="card-feedback-form" onSubmit={handleFeedbackSave} noValidate>
-              <p className="detail-hint">Set client review status, then save feedback.</p>
-              <label>
-                Status
-                <FancySelect
-                  fullWidth
-                  value={feedbackForm.status}
-                  onChange={(status) => setFeedbackForm((f) => ({ ...f, status }))}
-                  options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
-                />
-              </label>
-              <label>
-                Rating (optional)
-                <FancySelect
-                  fullWidth
-                  isClearable
-                  value={feedbackForm.rating}
-                  onChange={(rating) => setFeedbackForm((f) => ({ ...f, rating }))}
-                  placeholder="No rating"
-                  options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} / 5` }))}
-                />
-              </label>
-              <label>
-                Feedback note
-                <textarea
-                  value={feedbackForm.note}
-                  onChange={(e) => setFeedbackForm((f) => ({ ...f, note: e.target.value }))}
-                  placeholder="What did the client say?"
-                  maxLength={1000}
-                  rows={4}
-                />
-              </label>
-              {feedback.updatedAt && (
-                <p className="muted-hint">
-                  Last updated by {feedback.author || '—'} · {new Date(feedback.updatedAt).toLocaleString()}
-                </p>
-              )}
-            </form>
-          )}
-        </div>
-
-        <footer className="detail-footer">
-          {tab === 'details' && (
-            <div className="detail-footer-actions">
-              {onDeleteCard ? (
-                <button
-                  type="button"
-                  className="secondary-btn detail-delete-btn"
-                  onClick={() => setConfirmDeleteCard(true)}
-                  disabled={deleting}
-                >
-                  Delete card
-                </button>
-              ) : null}
+          <aside className="card-modal-side">
+            <div className="card-section-head card-activity-head">
+              <h3>
+                <Icon id="i-message" /> Comments and activity
+              </h3>
               <button
-                type="submit"
-                form="card-edit-form"
-                className="primary-btn detail-save-btn"
-                disabled={!dirty || deleting}
+                type="button"
+                className="card-ghost-btn"
+                onClick={() => setShowActivityDetails((v) => !v)}
               >
-                {dirty ? 'Save changes' : 'No changes yet'}
+                {showActivityDetails ? 'Hide details' : 'Show details'}
               </button>
             </div>
-          )}
-          {tab === 'comments' && (
-            <form className="comment-box" onSubmit={handleCommentSubmit} noValidate>
+
+            <form className="card-comment-compose" onSubmit={handleCommentSubmit} noValidate>
               <input
                 ref={commentInputRef}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Write a comment…"
+                placeholder="Write a comment..."
                 aria-label="Add a comment"
                 maxLength={1000}
                 disabled={commentBusy}
               />
-              <button type="submit" className="primary-btn comment-send" disabled={commentBusy || !comment.trim()}>
-                {commentBusy ? (
-                  <>
-                    <span className="btn-spinner" aria-hidden="true" />
-                    Sending…
-                  </>
-                ) : (
-                  'Send'
-                )}
-              </button>
+              <input
+                ref={commentFileInputRef}
+                type="file"
+                hidden
+                multiple
+                onChange={handleCommentFilePick}
+                accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
+                disabled={commentBusy}
+              />
+              {commentFiles.length ? (
+                <ul className="card-comment-picked">
+                  {commentFiles.map((file, index) => (
+                    <li key={`${file.name}-${file.size}-${index}`}>
+                      <span>{file.name}</span>
+                      <button
+                        type="button"
+                        className="text-btn"
+                        disabled={commentBusy}
+                        onClick={() => removeCommentFile(index)}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="card-comment-compose-actions">
+                <button
+                  type="button"
+                  className="card-ghost-btn"
+                  disabled={commentBusy || commentFiles.length >= MAX_FILES_PER_COMMENT}
+                  onClick={() => commentFileInputRef.current?.click()}
+                >
+                  <Icon id="i-paperclip" /> Attach file
+                </button>
+                <button
+                  type="submit"
+                  className="primary-btn comment-send"
+                  disabled={commentBusy || (!comment.trim() && !commentFiles.length)}
+                >
+                  {commentBusy ? 'Sending…' : 'Send'}
+                </button>
+              </div>
             </form>
-          )}
-          {tab === 'files' && (
-            <button type="button" className="primary-btn detail-save-btn" onClick={() => fileInputRef.current?.click()}>
-              Upload file
-            </button>
-          )}
-          {tab === 'feedback' && (
-            <button type="submit" form="card-feedback-form" className="primary-btn detail-save-btn">
-              Save feedback
-            </button>
-          )}
-        </footer>
+
+            {feed.length ? (
+              <div className="card-activity-feed">
+                {feed.map((entry) => (
+                  <article
+                    key={entry.id}
+                    className={`card-activity-item${entry._kind === 'comment' ? ' is-comment' : ' is-system'}${entry._pending ? ' is-pending' : ''}`}
+                  >
+                    <InitialsAvatar name={entry.author} />
+                    <div className="card-activity-body">
+                      <p className="card-activity-meta">
+                        <strong>{entry.author}</strong>
+                        <time className="card-time-link">{formatStamp(entry.createdAt, entry.time)}</time>
+                        {entry._pending ? (
+                          <span className="delivery-pending-pill">
+                            <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
+                            Saving…
+                          </span>
+                        ) : null}
+                      </p>
+                      {entry._kind === 'comment' && String(editingCommentId) === String(entry.id) ? (
+                        <div className="card-desc-edit">
+                          <textarea
+                            value={commentDraft}
+                            onChange={(e) => setCommentDraft(e.target.value)}
+                            rows={3}
+                            maxLength={1000}
+                          />
+                          <div className="card-desc-actions">
+                            <button type="button" className="primary-btn" onClick={() => saveEditComment(entry)}>
+                              Save
+                            </button>
+                            <button type="button" className="card-ghost-btn" onClick={() => setEditingCommentId(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className={`card-comment-bubble${entry._kind === 'comment' ? '' : ' is-system'}`}>
+                            {entry.text ? <p>{entry.text}</p> : null}
+                            {entry._kind === 'comment' && Array.isArray(entry.files) && entry.files.length ? (
+                              <ul className="card-comment-files">
+                                {entry.files.map((file) => {
+                                  const kind = fileKind(file.name);
+                                  const href = file.url || file.fileUrl || null;
+                                  return (
+                                    <li key={file.id || file.name}>
+                                      <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
+                                      {href ? (
+                                        <a href={href} download={file.name || undefined} target="_blank" rel="noreferrer">
+                                          {file.name || 'Open file'}
+                                        </a>
+                                      ) : (
+                                        <span>{file.name || 'File'}</span>
+                                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : null}
+                          </div>
+                          {entry._kind === 'comment' ? (
+                            <div className="card-comment-links">
+                              <button type="button" onClick={() => handleReply(entry)}>Reply</button>
+                              <button type="button" onClick={() => startEditComment(entry)}>Edit</button>
+                              <button type="button" onClick={() => setConfirmDeleteComment(entry)}>Delete</button>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="card-empty-line">No comments yet — be the first</p>
+            )}
+          </aside>
+        </div>
       </aside>
 
       <BoardAlertModal
@@ -1017,6 +1364,19 @@ export default function CardDrawer({
           setConfirmDeleteDelivery(null);
         }}
         onCancel={() => setConfirmDeleteDelivery(null)}
+      />
+
+      <BoardAlertModal
+        open={Boolean(confirmDeleteComment)}
+        title="Delete comment?"
+        message="This comment will be removed from the card."
+        tone="warn"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          if (confirmDeleteComment) removeComment(confirmDeleteComment);
+        }}
+        onCancel={() => setConfirmDeleteComment(null)}
       />
 
       <BoardAlertModal

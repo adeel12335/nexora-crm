@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../icons/IconSprite.jsx';
 import KanbanColumn from './KanbanColumn.jsx';
 import CardDrawer from './CardDrawer.jsx';
@@ -72,6 +73,8 @@ export default function KanbanBoard() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStage, setModalStage] = useState(productionStages[0].id);
   const [activityByCard, setActivityByCard] = useState({});
+  const [unreadByCard, setUnreadByCard] = useState({});
+  const [searchParams, setSearchParams] = useSearchParams();
   const cardsRef = useRef(cards);
   const saveChainsRef = useRef({});
 
@@ -197,8 +200,61 @@ export default function KanbanBoard() {
     }
     if ('feedback' in patch) body.feedback = patch.feedback;
     const data = await api.updateProductionCard(token, cardId, body);
+    window.setTimeout(() => {
+      window.dispatchEvent(new Event('nexora:notifications-changed'));
+    }, 900);
     if (!sync) return hydrateCard(data.card);
     return replaceCard(data.card);
+  }
+
+  const loadUnreadCards = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await api.notificationsUnreadCards(token);
+      setUnreadByCard(data.counts || {});
+    } catch {
+      setUnreadByCard({});
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    loadUnreadCards();
+    const id = setInterval(loadUnreadCards, 20000);
+    function onPing() { loadUnreadCards(); }
+    window.addEventListener('nexora:notifications-changed', onPing);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('nexora:notifications-changed', onPing);
+    };
+  }, [token, loadUnreadCards]);
+
+  useEffect(() => {
+    const raw = searchParams.get('card');
+    if (!raw || loading) return;
+    const cardId = Number(raw);
+    if (!Number.isInteger(cardId) || cardId < 1) return;
+    if (!cardsRef.current.some((c) => Number(c.id) === cardId)) return;
+    handleSelect(cardId);
+    const next = new URLSearchParams(searchParams);
+    next.delete('card');
+    setSearchParams(next, { replace: true });
+  }, [loading, searchParams, setSearchParams]);
+
+  async function markCardAlertsRead(cardId) {
+    if (!token || !cardId) return;
+    try {
+      await api.markCardNotificationsRead(token, cardId);
+      setUnreadByCard((prev) => {
+        if (!prev[String(cardId)]) return prev;
+        const next = { ...prev };
+        delete next[String(cardId)];
+        return next;
+      });
+      window.dispatchEvent(new Event('nexora:notifications-changed'));
+    } catch {
+      // keep badge if mark-read fails
+    }
   }
 
   /** Full card from API without wiping optimistic local state. */
@@ -327,6 +383,7 @@ export default function KanbanBoard() {
   function handleSelect(id) {
     setSelectedId(id);
     setDrawerOpen(true);
+    markCardAlertsRead(id);
     // Hydrate full card (file data URLs) in background after light list load.
     // Merge with any optimistic local edits so comments/deliveries don't vanish.
     api.getProductionCard(token, id)
@@ -450,6 +507,9 @@ export default function KanbanBoard() {
           ? `Card created with ${fileList.length} file${fileList.length > 1 ? 's' : ''}`
           : 'New production card created',
       );
+      window.setTimeout(() => {
+        window.dispatchEvent(new Event('nexora:notifications-changed'));
+      }, 900);
     } catch (err) {
       showToast(err.message || 'Could not create card');
       throw err;
@@ -483,42 +543,62 @@ export default function KanbanBoard() {
     }
   }
 
-  function handleAddComment(text) {
+  function handleAddComment(text, files = []) {
     const card = selectedCard || cardsRef.current.find((c) => c.id === selectedId);
     if (!card) return;
     const cardId = card.id;
-    const entry = {
-      id: nextFileId++,
-      kind: 'comment',
-      author: user?.name || 'You',
-      avatar: '/assets/avatar-jane.svg',
-      text,
-      time: 'now',
-      createdAt: new Date().toISOString(),
-      _pending: true,
-    };
-    const commentList = [entry, ...(card.commentList || [])];
-    patchCardLocal(cardId, { commentList });
-    pushActivity(cardId, 'added a comment');
-    showToast('Comment added');
+    const picked = Array.from(files || []);
 
-    enqueueCardSave(cardId, async () => {
+    (async () => {
+      let fileEntries = [];
       try {
-        const latest = cardsRef.current.find((c) => c.id === cardId);
-        await persistCard(cardId, { commentList: latest?.commentList || commentList }, { sync: false });
-        patchCardLocal(cardId, {
-          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
-            .map((c) => (String(c.id) === String(entry.id) ? { ...c, _pending: false } : c)),
-        });
-        showToast('Comment saved');
+        fileEntries = await Promise.all(picked.map(async (file) => ({
+          id: nextFileId++,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          url: await readFileAsDataUrl(file),
+          uploadedAt: new Date().toISOString(),
+        })));
       } catch (err) {
-        patchCardLocal(cardId, {
-          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || commentList)
-            .filter((c) => String(c.id) !== String(entry.id)),
-        });
-        showToast(err.message || 'Could not save comment');
+        showToast(err.message || 'Could not attach files');
+        return;
       }
-    });
+
+      const entry = {
+        id: nextFileId++,
+        kind: 'comment',
+        author: user?.name || 'You',
+        avatar: '/assets/avatar-jane.svg',
+        text: String(text || '').trim(),
+        files: fileEntries,
+        time: 'now',
+        createdAt: new Date().toISOString(),
+        _pending: true,
+      };
+      const commentList = [entry, ...(card.commentList || [])];
+      patchCardLocal(cardId, { commentList });
+      pushActivity(cardId, fileEntries.length ? 'added a comment with files' : 'added a comment');
+      showToast('Comment added');
+
+      enqueueCardSave(cardId, async () => {
+        try {
+          const latest = cardsRef.current.find((c) => c.id === cardId);
+          await persistCard(cardId, { commentList: latest?.commentList || commentList }, { sync: false });
+          patchCardLocal(cardId, {
+            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
+              .map((c) => (String(c.id) === String(entry.id) ? { ...c, _pending: false } : c)),
+          });
+          showToast('Comment saved');
+        } catch (err) {
+          patchCardLocal(cardId, {
+            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || commentList)
+              .filter((c) => String(c.id) !== String(entry.id)),
+          });
+          showToast(err.message || 'Could not save comment');
+        }
+      });
+    })();
   }
 
   function handleUploadFiles(cardId, files) {
@@ -819,6 +899,7 @@ export default function KanbanBoard() {
             onDragEnd={handleDragEnd}
             onDrop={handleDrop}
             onAddCard={canCreateCards ? handleAddCard : null}
+            unreadByCard={unreadByCard}
             mobileActive
           />
         ))}

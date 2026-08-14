@@ -39,10 +39,13 @@ export default function RoleLayout({ roleKey }) {
       }
     }
     refresh();
-    const id = setInterval(refresh, 60000);
+    const id = setInterval(refresh, 20000);
+    function onPing() { refresh(); }
+    window.addEventListener('nexora:notifications-changed', onPing);
     return () => {
       cancelled = true;
       clearInterval(id);
+      window.removeEventListener('nexora:notifications-changed', onPing);
     };
   }, [token]);
 

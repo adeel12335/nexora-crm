@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AlertItem from '../../components/notifications/AlertItem.jsx';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -11,8 +12,14 @@ const CHANNELS = [
   { id: 'email', label: 'Email' },
 ];
 
+const BOARD_PATH = {
+  admin: '/admin/production',
+  production: '/production/board',
+};
+
 export default function NotificationsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [channel, setChannel] = useState('all');
   const [alerts, setAlerts] = useState([]);
@@ -51,11 +58,17 @@ export default function NotificationsPage() {
   }, [token, load, showToast]);
 
   async function handleOpen(alert) {
-    if (!alert.unread) return;
     try {
-      await api.markNotificationRead(token, alert.id);
-      setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, unread: false } : a)));
-      setUnread((n) => Math.max(0, n - 1));
+      if (alert.unread) {
+        await api.markNotificationRead(token, alert.id);
+        setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, unread: false } : a)));
+        setUnread((n) => Math.max(0, n - 1));
+        window.dispatchEvent(new Event('nexora:notifications-changed'));
+      }
+      const boardPath = BOARD_PATH[user?.role];
+      if (boardPath && alert.relatedCardId) {
+        navigate(`${boardPath}?card=${alert.relatedCardId}`);
+      }
     } catch (err) {
       showToast(err.message || 'Could not mark as read');
     }
@@ -68,6 +81,7 @@ export default function NotificationsPage() {
       setAlerts((prev) => prev.map((a) => ({ ...a, unread: false })));
       setUnread(0);
       showToast('All notifications marked as read');
+      window.dispatchEvent(new Event('nexora:notifications-changed'));
     } catch (err) {
       showToast(err.message || 'Failed to mark all read');
     } finally {
@@ -81,7 +95,7 @@ export default function NotificationsPage() {
         <div>
           <h2>Notifications &amp; Alerts</h2>
           <p>
-            Real alerts from attendance, WhatsApp, and system events
+            Real alerts from production activity, attendance, and WhatsApp
             {unread ? ` · ${unread} unread` : ''}.
           </p>
         </div>

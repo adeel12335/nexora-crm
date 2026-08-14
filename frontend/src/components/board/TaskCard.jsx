@@ -3,7 +3,7 @@ import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import { isHighPriority, priorityLabel } from '../../utils/boardValidation.js';
 import { isLiveLikeStage } from '../../data/productionStages.js';
 
-export default function TaskCard({ card, stageColor, selected, onSelect, onDragStart, onDragEnd, dragging }) {
+export default function TaskCard({ card, stageColor, selected, onSelect, onDragStart, onDragEnd, dragging, unreadCount = 0 }) {
   const deadline = getDeadlineInfo(card.dueDate);
   const comments = card.comments || card.commentList?.length || 0;
   const attachments = card.attachments || card.fileList?.length || 0;
@@ -15,7 +15,7 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
 
   return (
     <article
-      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${liveLike ? ' is-live' : ''}`}
+      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${liveLike ? ' is-live' : ''}${unreadCount > 0 ? ' has-unread' : ''}`}
       style={{ '--stage': stageColor }}
       role="button"
       tabIndex={0}
@@ -31,6 +31,11 @@ export default function TaskCard({ card, stageColor, selected, onSelect, onDragS
       onDragStart={(e) => onDragStart(e, card)}
       onDragEnd={onDragEnd}
     >
+      {unreadCount > 0 && (
+        <span className="card-unread-badge" title={`${unreadCount} unread ${unreadCount === 1 ? 'alert' : 'alerts'}`}>
+          {unreadCount > 9 ? '9+' : unreadCount}
+        </span>
+      )}
       {isHighPriority(priority) && <span className="priority-flag" />}
       {showPriority && !isHighPriority(priority) && (
         <span className={`priority-flag priority-${priority}`} />

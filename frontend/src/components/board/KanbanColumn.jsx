@@ -12,6 +12,7 @@ export default function KanbanColumn({
   onDragEnd,
   onDrop,
   onAddCard,
+  unreadByCard = {},
   mobileActive,
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -45,6 +46,7 @@ export default function KanbanColumn({
             onSelect={onSelect}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
+            unreadCount={Number(unreadByCard[String(card.id)] || 0)}
           />
         )) : <div className="empty-state">No matching cards</div>}
       </div>

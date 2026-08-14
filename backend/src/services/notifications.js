@@ -319,14 +319,24 @@ export function buildProductionCardEvents({
   const addedComments = nextComments.filter((c) => !prevCommentIds.has(String(c.id)));
   for (const comment of addedComments) {
     const text = clipText(comment.text || comment.body || '');
-    if (!text) continue;
+    const fileNames = Array.isArray(comment.files)
+      ? comment.files.map((f) => f?.name).filter(Boolean)
+      : [];
+    if (!text && !fileNames.length) continue;
     const lines = cardHeaderLines(base);
-    lines.push('', 'Comment:', text);
+    if (text) {
+      lines.push('', 'Comment:', text);
+    }
+    if (fileNames.length === 1) lines.push(`File: ${fileNames[0]}`);
+    if (fileNames.length > 1) {
+      lines.push(`Files (${fileNames.length}):`);
+      for (const name of fileNames.slice(0, 5)) lines.push(`• ${name}`);
+    }
     events.push({
-      title: 'New comment',
+      title: fileNames.length && !text ? 'Comment attachment' : 'New comment',
       body: lines.join('\n'),
       tone: 'blue',
-      icon: 'i-message',
+      icon: fileNames.length ? 'i-paperclip' : 'i-message',
     });
   }
 
@@ -475,8 +485,46 @@ export function buildProductionCardEvents({
 }
 
 /**
- * Stage / priority / comment / delivery / feedback → assignee DM + optional group.
- * Sends one WhatsApp/app notification per concrete activity (dynamic body).
+ * Assignee + all admins, excluding the person who made the change.
+ * Each recipient gets their own unread in-app alert until they mark it read.
+ */
+async function getProductionAlertRecipients({ assigneeId, actorUserId = null }) {
+  const recipients = new Map();
+
+  if (assigneeId) {
+    const [[user]] = await pool.query(
+      `SELECT id, whatsapp_number FROM users WHERE id = ? AND is_active = 1`,
+      [assigneeId],
+    );
+    if (user) {
+      recipients.set(Number(user.id), {
+        userId: user.id,
+        whatsappNumber: user.whatsapp_number,
+        role: 'assignee',
+      });
+    }
+  }
+
+  const [admins] = await pool.query(
+    `SELECT id, whatsapp_number FROM users WHERE role = 'admin' AND is_active = 1`,
+  );
+  for (const admin of admins) {
+    const id = Number(admin.id);
+    if (recipients.has(id)) continue;
+    recipients.set(id, {
+      userId: admin.id,
+      whatsappNumber: admin.whatsapp_number,
+      role: 'admin',
+    });
+  }
+
+  if (actorUserId) recipients.delete(Number(actorUserId));
+  return [...recipients.values()];
+}
+
+/**
+ * Stage / priority / comment / delivery / feedback → assignee + admins (in-app),
+ * WhatsApp to the assignee, optional group.
  */
 export async function notifyProductionCardChange({
   userId,
@@ -485,6 +533,7 @@ export async function notifyProductionCardChange({
   clientName,
   assigneeName,
   actorName = null,
+  actorUserId = null,
   relatedCardId = null,
   prevStage,
   nextStage,
@@ -514,31 +563,50 @@ export async function notifyProductionCardChange({
   }
 
   const settings = await getWhatsAppPortalSettings();
+  const recipients = await getProductionAlertRecipients({
+    assigneeId: userId,
+    actorUserId,
+  });
   const results = [];
 
   for (const event of events) {
-    const personal = await notifyUser({
-      userId,
-      whatsappNumber,
-      type: 'system',
-      tone: event.tone || 'blue',
-      icon: event.icon || 'i-production',
-      title: event.title,
-      body: event.body,
-      relatedCardId,
-      sendWhatsApp: true,
-    });
+    if (!recipients.length) {
+      let group = null;
+      if (settings.notifyCardUpdatesGroup) {
+        group = await notifyGroup({
+          title: event.title,
+          body: event.body,
+          type: 'system',
+          tone: event.tone || 'blue',
+        });
+      }
+      results.push({ skipped: true, reason: 'no_recipients', group, title: event.title });
+      continue;
+    }
 
-    let group = null;
+    for (const recipient of recipients) {
+      const personal = await notifyUser({
+        userId: recipient.userId,
+        whatsappNumber: recipient.whatsappNumber || (recipient.role === 'assignee' ? whatsappNumber : null),
+        type: 'system',
+        tone: event.tone || 'blue',
+        icon: event.icon || 'i-production',
+        title: event.title,
+        body: event.body,
+        relatedCardId,
+        sendWhatsApp: recipient.role === 'assignee',
+      });
+      results.push({ ...personal, title: event.title, recipientRole: recipient.role });
+    }
+
     if (settings.notifyCardUpdatesGroup) {
-      group = await notifyGroup({
+      await notifyGroup({
         title: event.title,
         body: event.body,
         type: 'system',
         tone: event.tone || 'blue',
       });
     }
-    results.push({ ...personal, group, title: event.title });
   }
 
   return { ok: true, count: results.length, results };
@@ -553,6 +621,7 @@ export async function notifyProductionCardCreated({
   cardTitle,
   clientName,
   assigneeName,
+  actorUserId = null,
   stage,
   type,
   priority,
@@ -587,23 +656,31 @@ export async function notifyProductionCardCreated({
 
   const body = lines.join('\n');
   const settings = await getWhatsAppPortalSettings();
-
-  const personal = await notifyUser({
-    userId,
-    whatsappNumber,
-    type: 'system',
-    tone: 'green',
-    icon: 'i-production',
-    title,
-    body,
-    relatedCardId,
-    sendWhatsApp: true,
+  const recipients = await getProductionAlertRecipients({
+    assigneeId: userId,
+    actorUserId,
   });
+
+  const sent = [];
+  for (const recipient of recipients) {
+    const personal = await notifyUser({
+      userId: recipient.userId,
+      whatsappNumber: recipient.whatsappNumber || (recipient.role === 'assignee' ? whatsappNumber : null),
+      type: 'system',
+      tone: 'green',
+      icon: 'i-production',
+      title,
+      body,
+      relatedCardId,
+      sendWhatsApp: recipient.role === 'assignee',
+    });
+    sent.push({ ...personal, recipientRole: recipient.role });
+  }
 
   let group = null;
   if (settings.notifyCardUpdatesGroup) {
     group = await notifyGroup({ title, body, type: 'system', tone: 'green' });
   }
 
-  return { ...personal, group };
+  return { ok: true, count: sent.length, sent, group };
 }

@@ -5,6 +5,7 @@ const MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_FILES_PER_CARD = 10;
 const MAX_DELIVERIES_PER_CARD = 5;
 const MAX_FILES_PER_DELIVERY = 5;
+const MAX_FILES_PER_COMMENT = 3;
 const MAX_TITLE = 120;
 const MAX_CLIENT = 80;
 const MAX_DESCRIPTION = 2000;
@@ -110,11 +111,23 @@ export function validateCardForm(form, { allowPastDue = false, requireCrmClient 
   return errors;
 }
 
-export function validateComment(text) {
+export function validateComment(text, files = []) {
   const value = String(text || '').trim();
-  if (!value) return 'Comment cannot be empty';
-  if (value.length < 2) return 'Comment must be at least 2 characters';
+  const picked = Array.from(files || []).filter(Boolean);
+  if (!value && !picked.length) return 'Write a comment or attach a file';
+  if (value && value.length < 2 && !picked.length) return 'Comment must be at least 2 characters';
   if (value.length > MAX_COMMENT) return `Comment cannot exceed ${MAX_COMMENT} characters`;
+  if (picked.length > MAX_FILES_PER_COMMENT) {
+    return `A comment can have at most ${MAX_FILES_PER_COMMENT} files`;
+  }
+  for (const file of picked) {
+    const ext = extOf(file.name);
+    if (!ALLOWED_EXT.has(ext)) return `"${file.name}" type is not allowed`;
+    if (!(file.size > 0)) return `"${file.name}" is empty`;
+    if (file.size > MAX_FILE_BYTES) return `"${file.name}" exceeds 5 MB`;
+  }
+  const total = picked.reduce((sum, f) => sum + Number(f.size || 0), 0);
+  if (total > MAX_TOTAL_FILE_BYTES) return `Comment files together cannot exceed ${MAX_TOTAL_FILE_BYTES / (1024 * 1024)} MB`;
   return '';
 }
 
@@ -324,4 +337,4 @@ export function fromDateInputValue(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export { MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, MAX_FILES_PER_DELIVERY, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };
+export { MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD, MAX_FILES_PER_DELIVERY, MAX_FILES_PER_COMMENT, MAX_FILE_BYTES, MAX_TOTAL_FILE_BYTES, ALLOWED_EXT };

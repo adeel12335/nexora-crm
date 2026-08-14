@@ -168,10 +168,13 @@ export const api = {
     return request(`/notifications${q ? `?${q}` : ''}`, { token });
   },
   notificationsUnreadCount: (token) => request('/notifications/unread-count', { token }),
+  notificationsUnreadCards: (token) => request('/notifications/unread-cards', { token }),
   markNotificationRead: (token, id) =>
     request(`/notifications/${id}/read`, { method: 'PATCH', token }),
   markAllNotificationsRead: (token) =>
     request('/notifications/read-all', { method: 'POST', token }),
+  markCardNotificationsRead: (token, cardId) =>
+    request(`/notifications/read-card/${cardId}`, { method: 'POST', token }),
 
   // --- production board ---
   listProductionCards: (token, query = {}) => {

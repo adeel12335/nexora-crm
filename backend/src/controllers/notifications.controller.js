@@ -81,6 +81,22 @@ export async function unreadCount(req, res) {
   res.json({ unread: Number(row?.unread || 0) });
 }
 
+/** GET /api/notifications/unread-cards */
+export async function unreadCards(req, res) {
+  const [rows] = await pool.query(
+    `SELECT related_card_id AS cardId, COUNT(*) AS unread
+     FROM notifications
+     WHERE user_id = ? AND is_read = 0 AND related_card_id IS NOT NULL AND channel = 'app'
+     GROUP BY related_card_id`,
+    [req.user.id]
+  );
+  const counts = {};
+  for (const row of rows) {
+    counts[String(row.cardId)] = Number(row.unread || 0);
+  }
+  res.json({ counts });
+}
+
 /** PATCH /api/notifications/:id/read */
 export async function markRead(req, res) {
   const id = Number(req.params.id);
@@ -103,6 +119,20 @@ export async function markAllRead(req, res) {
   const [result] = await pool.query(
     `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
     [req.user.id]
+  );
+  res.json({ ok: true, updated: result.affectedRows });
+}
+
+/** POST /api/notifications/read-card/:cardId */
+export async function markCardRead(req, res) {
+  const cardId = Number(req.params.cardId);
+  if (!Number.isInteger(cardId) || cardId < 1) {
+    return res.status(400).json({ error: 'Invalid card id' });
+  }
+  const [result] = await pool.query(
+    `UPDATE notifications SET is_read = 1
+     WHERE user_id = ? AND related_card_id = ? AND is_read = 0`,
+    [req.user.id, cardId]
   );
   res.json({ ok: true, updated: result.affectedRows });
 }

@@ -218,7 +218,10 @@ function toCard(row, { light = false, role = null } = {}) {
     dueDate: row.due_date,
     comments: Number(row.comments_count || 0),
     attachments: Number(row.attachments_count || 0),
-    commentList: light ? (extras.commentList || []).slice(-20) : (extras.commentList || []),
+    commentList: mapCommentList(
+      light ? (extras.commentList || []).slice(-20) : (extras.commentList || []),
+      { light },
+    ),
     fileList,
     deliveryList: mapDeliveryList(extras.deliveryList, { light }),
     feedback: extras.feedback || {
@@ -346,6 +349,59 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment' } = {}) {
     },
     totalBytes: nextTotal,
   };
+}
+
+function mapCommentList(raw, { light = false } = {}) {
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((comment) => {
+    const files = Array.isArray(comment?.files) ? comment.files.map((f) => {
+      const url = f?.url || f?.fileUrl || null;
+      return {
+        id: f?.id,
+        name: f?.name || null,
+        size: f?.size ?? null,
+        type: f?.type || null,
+        url: light && typeof url === 'string' && url.startsWith('data:') ? null : url,
+        uploadedAt: f?.uploadedAt || null,
+      };
+    }).filter((f) => f.name || f.url) : [];
+    return {
+      ...comment,
+      text: String(comment?.text || comment?.body || ''),
+      files,
+    };
+  });
+}
+
+function sanitizeCommentList(commentList) {
+  const list = Array.isArray(commentList) ? commentList.slice(0, 200) : [];
+  const out = [];
+  for (const raw of list) {
+    const text = String(raw?.text || raw?.body || '').trim().slice(0, 1000);
+    const filesIn = Array.isArray(raw?.files) ? raw.files.slice(0, 3) : [];
+    const files = [];
+    let totalBytes = 0;
+    for (const f of filesIn) {
+      const { file, totalBytes: nextBytes } = sanitizeFileAttachment(f, {
+        totalBytes,
+        label: 'Comment file',
+      });
+      totalBytes = nextBytes;
+      files.push(file);
+    }
+    if (!text && !files.length) continue;
+    out.push({
+      id: raw?.id ?? Date.now(),
+      kind: 'comment',
+      author: String(raw?.author || 'Someone').slice(0, 80),
+      avatar: raw?.avatar || null,
+      text,
+      time: raw?.time || 'now',
+      createdAt: raw?.createdAt || new Date().toISOString(),
+      files,
+    });
+  }
+  return out;
 }
 
 function defaultDeliveryFeedback(raw) {
@@ -519,7 +575,7 @@ function sanitizeDeliveryList(deliveryList) {
 }
 
 function sanitizeExtras({ commentList, fileList, feedback, deliveryList }) {
-  const comments = Array.isArray(commentList) ? commentList.slice(0, 200) : [];
+  const comments = sanitizeCommentList(commentList);
   const filesIn = Array.isArray(fileList) ? fileList : [];
   if (filesIn.length > 10) {
     const err = new Error('A card can have at most 10 attachments');
@@ -730,6 +786,7 @@ export async function createCard(req, res) {
       cardTitle: card.title,
       clientName: card.client,
       assigneeName: card.assignee?.name,
+      actorUserId: req.user?.id || null,
       stage: card.stage,
       type: card.type,
       priority: card.priority,
@@ -851,6 +908,7 @@ export async function updateCard(req, res) {
       clientName: card.client,
       assigneeName: card.assignee?.name,
       actorName: req.user?.name || null,
+      actorUserId: req.user?.id || null,
       relatedCardId: card.id,
       prevStage: normalizeStage(existing.stage),
       nextStage: next.stage,
