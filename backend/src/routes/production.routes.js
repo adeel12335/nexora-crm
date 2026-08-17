@@ -7,6 +7,12 @@ import {
   updateCard,
   deleteCard,
 } from '../controllers/production.controller.js';
+import {
+  uploadProductionFiles,
+  uploadProductionFilesMiddleware,
+  migrateAllBase64Uploads,
+} from '../controllers/uploads.controller.js';
+import { publicBaseFromRequest } from '../services/uploads.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
@@ -48,4 +54,33 @@ productionRoutes.delete(
   '/cards/:id',
   requireRole('admin'),
   asyncHandler(deleteCard),
+);
+
+/** Multipart → Hostinger disk under /uploads/production */
+productionRoutes.post(
+  '/uploads',
+  requireRole('admin', 'production'),
+  (req, res, next) => {
+    uploadProductionFilesMiddleware(req, res, (err) => {
+      if (!err) return next();
+      const status = err.status || 400;
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Each file must be 5 MB or smaller'
+        : (err.message || 'Upload failed');
+      return res.status(status).json({ error: message });
+    });
+  },
+  asyncHandler(uploadProductionFiles),
+);
+
+/** One-shot: move legacy base64 blobs from MySQL onto disk. */
+productionRoutes.post(
+  '/uploads/migrate-base64',
+  requireRole('admin'),
+  asyncHandler(async (req, res) => {
+    const result = await migrateAllBase64Uploads({
+      publicBase: publicBaseFromRequest(req),
+    });
+    res.json({ ok: true, ...result });
+  }),
 );

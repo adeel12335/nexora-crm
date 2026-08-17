@@ -65,15 +65,6 @@ function toDateInputValue(iso) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
-}
-
 function blankPushForm(client, assignees) {
   const productionUser = assignees.find((u) => u.role === 'production');
   const due = computeDueDate('draft', new Date());
@@ -691,14 +682,7 @@ export default function ClientsPage() {
           showToast(fileErrors[0] || 'Upload blocked');
           return;
         }
-        fileList = await Promise.all(ok.map(async (file) => ({
-          id: Date.now() + Math.random(),
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          url: await readFileAsDataUrl(file),
-          uploadedAt: new Date().toISOString(),
-        })));
+        fileList = (await api.uploadProductionFiles(token, ok)).files || [];
       }
 
       const paymentNote = 'Pushed from CRM Clients';

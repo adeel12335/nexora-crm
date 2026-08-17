@@ -19,6 +19,26 @@ async function request(path, { method = 'GET', body, token } = {}) {
   return data;
 }
 
+/** Multipart upload to Hostinger disk (no JSON Content-Type). */
+async function uploadFiles(path, files, token) {
+  const form = new FormData();
+  for (const file of files) {
+    form.append('files', file);
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: form,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || `Upload failed (${res.status})`);
+  }
+  return data;
+}
+
 export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   me: (token) => request('/auth/me', { token }),
@@ -202,6 +222,10 @@ export const api = {
     request(`/production/cards/${id}`, { method: 'PATCH', body, token }),
   deleteProductionCard: (token, id) =>
     request(`/production/cards/${id}`, { method: 'DELETE', token }),
+  /** Upload files to Hostinger disk; returns { files: [{ id, name, size, type, url, uploadedAt }] } */
+  uploadProductionFiles: (token, files) => uploadFiles('/production/uploads', files, token),
+  migrateProductionBase64: (token) =>
+    request('/production/uploads/migrate-base64', { method: 'POST', token }),
   listPortfolio: (token) => request('/production/portfolio', { token }),
 
   // --- portal settings (admin) ---

@@ -40,13 +40,19 @@ function hydrateCard(card) {
   };
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
+/** Upload File objects to Hostinger; returns card attachment metadata (http URLs). */
+async function uploadFilesToHost(token, files) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (!list.length) return [];
+  const data = await api.uploadProductionFiles(token, list);
+  return (data.files || []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    type: f.type || 'application/octet-stream',
+    url: f.url,
+    uploadedAt: f.uploadedAt || new Date().toISOString(),
+  }));
 }
 
 function hasLiveLink(card) {
@@ -203,22 +209,78 @@ export default function KanbanBoard() {
     };
     // Only send extras the caller intends to change. Re-sending light list
     // payloads (data: URLs stripped) would wipe attachments / deliveries.
+    // Existing data: URLs are omitted so PATCH stays small; the API restores
+    // prior urls by file id.
     if ('commentList' in patch) {
-      body.commentList = (patch.commentList || []).map(({ _pending, ...rest }) => rest);
+      body.commentList = (patch.commentList || []).map(({ _pending, ...rest }) => ({
+        ...rest,
+        files: Array.isArray(rest.files)
+          ? rest.files.map((f) => {
+            if (_pending) return f;
+            if (f?.url && String(f.url).startsWith('data:')) {
+              const { url, ...meta } = f;
+              return meta;
+            }
+            return f;
+          })
+          : rest.files,
+      }));
     }
     if ('fileList' in patch) {
-      body.fileList = (patch.fileList || []).map(({ _pending, ...rest }) => rest);
+      body.fileList = (patch.fileList || []).map(({ _pending, ...rest }) => {
+        if (_pending) return rest;
+        if (rest.url && String(rest.url).startsWith('data:')) {
+          const { url, ...meta } = rest;
+          return meta;
+        }
+        return rest;
+      });
     }
     if ('deliveryList' in patch) {
-      body.deliveryList = (patch.deliveryList || []).map(({ _pending, ...rest }) => rest);
+      body.deliveryList = (patch.deliveryList || []).map(({ _pending, ...rest }) => {
+        if (_pending) return rest;
+        const stripFile = (f) => {
+          if (!f) return f;
+          if (f.fileUrl && String(f.fileUrl).startsWith('data:')) {
+            const { fileUrl, ...meta } = f;
+            return meta;
+          }
+          if (f.url && String(f.url).startsWith('data:')) {
+            const { url, ...meta } = f;
+            return meta;
+          }
+          return f;
+        };
+        return {
+          ...rest,
+          fileUrl: rest.fileUrl && String(rest.fileUrl).startsWith('data:') ? undefined : rest.fileUrl,
+          files: Array.isArray(rest.files) ? rest.files.map(stripFile) : rest.files,
+        };
+      });
     }
     if ('feedback' in patch) body.feedback = patch.feedback;
     const data = await api.updateProductionCard(token, cardId, body);
     window.setTimeout(() => {
       window.dispatchEvent(new Event('nexora:notifications-changed'));
     }, 900);
-    if (!sync) return hydrateCard(data.card);
-    return replaceCard(data.card);
+    if (!sync) {
+      const prev = cardsRef.current.find((c) => c.id === cardId);
+      const next = hydrateCard(data.card);
+      if (prev) {
+        next.fileList = mergeFileLists(prev.fileList || [], next.fileList || []);
+        next.commentList = mergeCommentLists(prev.commentList || [], next.commentList || []);
+        next.deliveryList = mergeDeliveryLists(prev.deliveryList || [], next.deliveryList || []);
+      }
+      return next;
+    }
+    const prev = cardsRef.current.find((c) => c.id === cardId);
+    const next = hydrateCard(data.card);
+    if (prev) {
+      next.fileList = mergeFileLists(prev.fileList || [], next.fileList || []);
+      next.commentList = mergeCommentLists(prev.commentList || [], next.commentList || []);
+      next.deliveryList = mergeDeliveryLists(prev.deliveryList || [], next.deliveryList || []);
+    }
+    return replaceCard(next);
   }
 
   const loadUnreadCards = useCallback(async () => {
@@ -476,19 +538,11 @@ export default function KanbanBoard() {
   }
 
   async function handleCreateCard(form) {
-    const createdAt = new Date().toISOString();
     const rawFiles = Array.from(form.files || []);
     let fileList = [];
     if (rawFiles.length) {
       try {
-        fileList = await Promise.all(rawFiles.map(async (file) => ({
-          id: nextFileId++,
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          url: await readFileAsDataUrl(file),
-          uploadedAt: createdAt,
-        })));
+        fileList = await uploadFilesToHost(token, rawFiles);
       } catch (err) {
         showToast(err.message || 'Could not attach files');
         throw err;
@@ -581,14 +635,7 @@ export default function KanbanBoard() {
 
     let fileEntries = [];
     try {
-      fileEntries = await Promise.all(picked.map(async (file) => ({
-        id: nextFileId++,
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        url: await readFileAsDataUrl(file),
-        uploadedAt: new Date().toISOString(),
-      })));
+      fileEntries = await uploadFilesToHost(token, picked);
     } catch (err) {
       showToast(err.message || 'Could not attach files');
       return false;
@@ -642,15 +689,8 @@ export default function KanbanBoard() {
     if (errors.length) showToast(errors[0]);
 
     try {
-      const uploaded = await Promise.all(ok.map(async (file) => ({
-        id: nextFileId++,
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        url: await readFileAsDataUrl(file),
-        uploadedAt: new Date().toISOString(),
-        _pending: true,
-      })));
+      const hosted = await uploadFilesToHost(token, ok);
+      const uploaded = hosted.map((f) => ({ ...f, _pending: true }));
       const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
       patchCardLocal(cardId, { fileList: optimisticList });
       pushActivity(cardId, `uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`);
@@ -658,13 +698,12 @@ export default function KanbanBoard() {
 
       enqueueCardSave(cardId, async () => {
         try {
-          const serverCard = await fetchFullCard(cardId);
           const latest = cardsRef.current.find((c) => c.id === cardId);
-          const merged = mergeFileLists(latest?.fileList || optimisticList, serverCard.fileList || [])
-            .slice(0, MAX_FILES_PER_CARD)
-            .map((f) => ({ ...f, _pending: false }));
+          const merged = (latest?.fileList || optimisticList).slice(0, MAX_FILES_PER_CARD);
           await persistCard(cardId, { fileList: merged }, { sync: false });
-          patchCardLocal(cardId, { fileList: merged });
+          patchCardLocal(cardId, {
+            fileList: merged.map((f) => ({ ...f, _pending: false })),
+          });
         } catch (err) {
           const uploadedIds = new Set(uploaded.map((f) => String(f.id)));
           patchCardLocal(cardId, {
@@ -693,12 +732,11 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const serverCard = await fetchFullCard(cardId);
         const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = mergeFileLists(latest?.fileList || fileList, serverCard.fileList || [])
+        const merged = (latest?.fileList || fileList)
           .filter((f) => String(f.id) !== String(fileId));
         await persistCard(cardId, { fileList: merged }, { sync: false });
-        patchCardLocal(cardId, { fileList: merged });
+        patchCardLocal(cardId, { fileList: merged.map((f) => ({ ...f, _pending: false })) });
       } catch (err) {
         patchCardLocal(cardId, { fileList: previous });
         showToast(err.message || 'Could not remove file');
@@ -721,15 +759,16 @@ export default function KanbanBoard() {
 
     let fileEntries = [];
     try {
-      fileEntries = await Promise.all(picked.map(async (f) => ({
-        id: nextFileId++,
+      const hosted = await uploadFilesToHost(token, picked);
+      fileEntries = hosted.map((f) => ({
+        id: f.id,
         name: f.name,
         size: f.size,
-        type: f.type || 'application/octet-stream',
-        fileUrl: await readFileAsDataUrl(f),
-      })));
+        type: f.type,
+        fileUrl: f.url,
+      }));
     } catch (err) {
-      showToast(err.message || 'Could not read file');
+      showToast(err.message || 'Could not upload file');
       return false;
     }
 
@@ -758,15 +797,12 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const serverCard = await fetchFullCard(cardId);
         const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = mergeDeliveryLists(
-          latest?.deliveryList || deliveryList,
-          serverCard.deliveryList || [],
-        ).slice(0, MAX_DELIVERIES_PER_CARD)
-          .map((d) => ({ ...d, _pending: false }));
+        const merged = (latest?.deliveryList || deliveryList).slice(0, MAX_DELIVERIES_PER_CARD);
         await persistCard(cardId, { deliveryList: merged }, { sync: false });
-        patchCardLocal(cardId, { deliveryList: merged });
+        patchCardLocal(cardId, {
+          deliveryList: merged.map((d) => ({ ...d, _pending: false })),
+        });
         showToast('Delivery saved');
       } catch (err) {
         patchCardLocal(cardId, {
@@ -803,12 +839,8 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const serverCard = await fetchFullCard(cardId);
         const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = mergeDeliveryLists(
-          latest?.deliveryList || deliveryList,
-          serverCard.deliveryList || [],
-        );
+        const merged = latest?.deliveryList || deliveryList;
         await persistCard(cardId, { deliveryList: merged }, { sync: false });
         patchCardLocal(cardId, { deliveryList: merged });
       } catch (err) {
@@ -831,12 +863,9 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const serverCard = await fetchFullCard(cardId);
         const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = mergeDeliveryLists(
-          latest?.deliveryList || deliveryList,
-          serverCard.deliveryList || [],
-        ).filter((d) => String(d.id) !== String(deliveryId));
+        const merged = (latest?.deliveryList || deliveryList)
+          .filter((d) => String(d.id) !== String(deliveryId));
         await persistCard(cardId, { deliveryList: merged }, { sync: false });
         patchCardLocal(cardId, { deliveryList: merged });
       } catch (err) {

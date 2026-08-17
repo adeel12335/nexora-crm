@@ -12,8 +12,11 @@ import { notificationsRoutes } from './routes/notifications.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { productionRoutes } from './routes/production.routes.js';
 import { followupsRoutes } from './routes/followups.routes.js';
+import { ensureUploadDirs, UPLOAD_ROOT } from './services/uploads.js';
 
 export const app = express();
+
+ensureUploadDirs();
 
 /** Allow production portal + Vercel + optional CORS_ORIGINS (comma-separated). */
 const corsOrigins = String(process.env.CORS_ORIGINS || '')
@@ -49,7 +52,23 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '2mb' }));
+
+// Disk uploads — prefer /api/uploads (Hostinger often proxies only /api to Node)
+app.use('/api/uploads', express.static(UPLOAD_ROOT, {
+  fallthrough: true,
+  maxAge: '7d',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
+app.use('/uploads', express.static(UPLOAD_ROOT, {
+  fallthrough: true,
+  maxAge: '7d',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 /** Load-balancer / uptime probe (no auth). */
 app.get('/health', healthCheck);

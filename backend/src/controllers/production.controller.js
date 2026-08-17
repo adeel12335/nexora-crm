@@ -1,5 +1,7 @@
 import { pool } from '../config/db.js';
 import { notifyProductionCardChange, notifyProductionCardCreated } from '../services/notifications.js';
+import { materializeExtrasDataUrls } from './uploads.controller.js';
+import { publicBaseFromRequest } from '../services/uploads.js';
 
 const STAGES = new Set([
   'new_project_create_draft',
@@ -312,16 +314,51 @@ const ALLOWED_FILE_EXT = new Set([
   'txt', 'csv', 'zip', 'rar', 'mp4', 'mov', 'webm',
 ]);
 
-function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment' } = {}) {
+function fileExtOf(name) {
+  const base = String(name || '').trim().split(/[?#]/)[0];
+  const parts = base.toLowerCase().split('.');
+  if (parts.length < 2) return '';
+  return parts.pop() || '';
+}
+
+/** True when this "attachment" is really a bookmark/link (Trello import noise). */
+function isLinkOnlyAttachment(f) {
   const name = String(f?.name || '').trim();
-  const size = Number(f?.size || 0);
-  const ext = name.toLowerCase().split('.').pop() || '';
+  const url = String(f?.url || '').trim();
+  if (/^https?:\/\//i.test(name) && !ALLOWED_FILE_EXT.has(fileExtOf(name))) return true;
+  if (/^https?:\/\/en\.wikipedia\.org\//i.test(url) && !ALLOWED_FILE_EXT.has(fileExtOf(name))) return true;
+  if (/^https?:\/\//i.test(url) && !name) return true;
+  return false;
+}
+
+/**
+ * Sanitize one attachment.
+ * Returns { file, totalBytes } or { skip: true } for legacy link junk (do not throw —
+ * stage moves must not fail because Trello import stored a wiki URL in fileList).
+ */
+function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = true } = {}) {
+  if (isLinkOnlyAttachment(f)) {
+    return { skip: true, totalBytes: Number(totalBytes || 0) };
+  }
+
+  const name = String(f?.name || '').trim();
+  const url = String(f?.url || '');
+  const ext = fileExtOf(name);
   if (!name || !ALLOWED_FILE_EXT.has(ext)) {
+    // Soft-drop broken legacy rows on update; still reject bad new uploads.
+    if (!strict) return { skip: true, totalBytes: Number(totalBytes || 0) };
     const err = new Error(`${label} "${name || 'file'}" type is not allowed`);
     err.status = 400;
     throw err;
   }
+
+  let size = Number(f?.size || 0);
+  // Trello-imported remote files often have no size — keep them if URL looks real.
+  if (!(size > 0) && url && (/^https?:\/\//i.test(url) || url.startsWith('data:'))) {
+    size = 1;
+  }
   if (!(size > 0) || size > 5 * 1024 * 1024) {
+    if (!strict) return { skip: true, totalBytes: Number(totalBytes || 0) };
     const err = new Error(`${label} "${name}" must be between 1 byte and 5 MB`);
     err.status = 400;
     throw err;
@@ -332,8 +369,8 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment' } = {}) {
     err.status = 400;
     throw err;
   }
-  const url = String(f?.url || '');
   if (url && !url.startsWith('data:') && !/^https?:\/\//i.test(url)) {
+    if (!strict) return { skip: true, totalBytes: Number(totalBytes || 0) };
     const err = new Error(`${label} "${name}" has an invalid URL`);
     err.status = 400;
     throw err;
@@ -382,12 +419,14 @@ function sanitizeCommentList(commentList) {
     const files = [];
     let totalBytes = 0;
     for (const f of filesIn) {
-      const { file, totalBytes: nextBytes } = sanitizeFileAttachment(f, {
+      const result = sanitizeFileAttachment(f, {
         totalBytes,
         label: 'Comment file',
+        strict: false,
       });
-      totalBytes = nextBytes;
-      files.push(file);
+      totalBytes = result.totalBytes;
+      if (result.skip || !result.file) continue;
+      files.push(result.file);
     }
     if (!text && !files.length) continue;
     out.push({
@@ -520,7 +559,7 @@ function sanitizeDeliveryList(deliveryList) {
 
     const files = [];
     for (const candidate of rawFiles) {
-      const { file, totalBytes: nextBytes } = sanitizeFileAttachment(
+      const result = sanitizeFileAttachment(
         {
           id: candidate.id,
           name: candidate.name,
@@ -529,15 +568,16 @@ function sanitizeDeliveryList(deliveryList) {
           url: candidate.fileUrl || candidate.url || null,
           uploadedAt: raw.createdAt,
         },
-        { totalBytes, label: 'Delivery file' },
+        { totalBytes, label: 'Delivery file', strict: false },
       );
-      totalBytes = nextBytes;
+      totalBytes = result.totalBytes;
+      if (result.skip || !result.file) continue;
       files.push({
-        id: file.id,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        fileUrl: file.url,
+        id: result.file.id,
+        name: result.file.name,
+        size: result.file.size,
+        type: result.file.type,
+        fileUrl: result.file.url,
       });
     }
 
@@ -574,20 +614,91 @@ function sanitizeDeliveryList(deliveryList) {
   return items;
 }
 
-function sanitizeExtras({ commentList, fileList, feedback, deliveryList }) {
+/**
+ * When the client omits base64/data URLs for existing files (to keep PATCH small),
+ * restore the prior url/size from extras already stored on the card.
+ */
+function mergeIncomingFileList(incoming, previous = []) {
+  if (!Array.isArray(incoming)) return incoming;
+  const prevById = new Map((Array.isArray(previous) ? previous : []).map((f) => [String(f.id), f]));
+  return incoming.map((f) => {
+    if (!f || typeof f !== 'object') return f;
+    const prev = prevById.get(String(f.id));
+    if (!prev) return f;
+    const hasUrl = Boolean(String(f.url || f.fileUrl || '').trim());
+    if (hasUrl) return f;
+    return {
+      ...prev,
+      ...f,
+      url: prev.url || prev.fileUrl || null,
+      size: Number(f.size) > 0 ? f.size : prev.size,
+      name: f.name || prev.name,
+      type: f.type || prev.type,
+      uploadedAt: f.uploadedAt || prev.uploadedAt,
+    };
+  });
+}
+
+function mergeIncomingDeliveryList(incoming, previous = []) {
+  if (!Array.isArray(incoming)) return incoming;
+  const prevById = new Map((Array.isArray(previous) ? previous : []).map((d) => [String(d.id), d]));
+  return incoming.map((d) => {
+    if (!d || typeof d !== 'object') return d;
+    const prev = prevById.get(String(d.id));
+    if (!prev) return d;
+    const prevFiles = Array.isArray(prev.files) ? prev.files : [];
+    const nextFiles = Array.isArray(d.files) ? d.files : null;
+    const files = nextFiles
+      ? mergeIncomingFileList(
+        nextFiles.map((f) => ({ ...f, url: f.url || f.fileUrl || null })),
+        prevFiles.map((f) => ({ ...f, url: f.url || f.fileUrl || null })),
+      ).map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        fileUrl: f.fileUrl || f.url || null,
+      }))
+      : prevFiles;
+    const primary = files[0] || null;
+    const incomingFileUrl = String(d.fileUrl || '').trim();
+    return {
+      ...prev,
+      ...d,
+      files,
+      fileUrl: incomingFileUrl
+        || primary?.fileUrl
+        || prev.fileUrl
+        || null,
+      name: d.name || primary?.name || prev.name || null,
+      size: d.size ?? primary?.size ?? prev.size ?? null,
+      type: d.type || primary?.type || prev.type || null,
+      url: d.url || prev.url || null,
+    };
+  });
+}
+
+function sanitizeExtras({ commentList, fileList, feedback, deliveryList, strictFiles = true }) {
   const comments = sanitizeCommentList(commentList);
-  const filesIn = Array.isArray(fileList) ? fileList : [];
+  let filesIn = Array.isArray(fileList) ? fileList : [];
   if (filesIn.length > 10) {
-    const err = new Error('A card can have at most 10 attachments');
-    err.status = 400;
-    throw err;
+    if (strictFiles) {
+      const err = new Error('A card can have at most 10 attachments');
+      err.status = 400;
+      throw err;
+    }
+    // Legacy Trello imports can exceed the cap — keep the newest/first 10 on update.
+    filesIn = filesIn.slice(0, 10);
   }
   const files = [];
   let totalBytes = 0;
   for (const f of filesIn) {
-    const { file, totalBytes: nextBytes } = sanitizeFileAttachment(f, { totalBytes });
-    totalBytes = nextBytes;
-    files.push(file);
+    // New uploads stay strict; re-saving existing extras (stage drag-drop) soft-skips
+    // legacy Trello link/URL rows so moves are not blocked.
+    const result = sanitizeFileAttachment(f, { totalBytes, strict: strictFiles });
+    totalBytes = result.totalBytes;
+    if (result.skip || !result.file) continue;
+    files.push(result.file);
   }
 
   const fb = feedback && typeof feedback === 'object' ? feedback : {
@@ -746,7 +857,14 @@ export async function createCard(req, res) {
     url = null;
   }
 
-  const extras = sanitizeExtras({ commentList, fileList, feedback, deliveryList });
+  const publicBase = publicBaseFromRequest(req);
+  const { extras: matured } = materializeExtrasDataUrls({
+    commentList,
+    fileList,
+    feedback,
+    deliveryList,
+  }, publicBase);
+  const extras = sanitizeExtras(matured);
 
   const [result] = await pool.query(
     `INSERT INTO production_cards
@@ -852,12 +970,25 @@ export async function updateCard(req, res) {
   if (body.deliveryList !== undefined && req.user?.role !== 'admin') {
     nextDeliveryList = protectDeliveryFeedback(body.deliveryList, prevExtras.deliveryList);
   }
+  if (body.deliveryList !== undefined) {
+    nextDeliveryList = mergeIncomingDeliveryList(nextDeliveryList, prevExtras.deliveryList);
+  }
 
-  const extras = sanitizeExtras({
+  // Soft-clean legacy Trello link rows so stage drag-drop never fails validation.
+  // Clients may omit data: URLs for existing attachments — restore them by id.
+  const incomingFiles = body.fileList !== undefined
+    ? mergeIncomingFileList(body.fileList, prevExtras.fileList)
+    : prevExtras.fileList;
+  const publicBase = publicBaseFromRequest(req);
+  const { extras: matured } = materializeExtrasDataUrls({
     commentList: body.commentList !== undefined ? body.commentList : prevExtras.commentList,
-    fileList: body.fileList !== undefined ? body.fileList : prevExtras.fileList,
+    fileList: incomingFiles,
     feedback: body.feedback !== undefined ? body.feedback : prevExtras.feedback,
     deliveryList: nextDeliveryList,
+  }, publicBase);
+  const extras = sanitizeExtras({
+    ...matured,
+    strictFiles: false,
   });
 
   const prevClientId = existing.client_id;
@@ -893,7 +1024,9 @@ export async function updateCard(req, res) {
   }
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
-  const card = toCard(row, { role: req.user?.role || null });
+  // Light payload: full base64 attachments can be ~2MB and break browser/proxy timeouts
+  // after a successful save (comments appear briefly then vanish on rollback).
+  const card = toCard(row, { light: true, role: req.user?.role || null });
 
   const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
   (async () => {
