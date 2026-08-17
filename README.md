@@ -1,7 +1,7 @@
 # Nexora CRM Portal
 
 A role-based CRM/attendance/production portal — React frontend, Node.js +
-MySQL backend (Phase 2).
+MySQL backend (Phase 2). 
    
 ## Structure    
 
