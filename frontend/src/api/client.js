@@ -1,5 +1,29 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
+/** Origin of the API host (no /api suffix), for resolving /api/uploads/... paths. */
+export function apiOrigin() {
+  try {
+    const u = new URL(API_BASE, typeof window !== 'undefined' ? window.location.href : 'http://localhost');
+    // API_BASE is typically https://host/api → origin https://host
+    return u.origin;
+  } catch {
+    return '';
+  }
+}
+
+/** Turn relative /api/uploads/... (or /uploads/...) into an absolute Hostinger URL. */
+export function resolveMediaUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  if (raw.startsWith('/api/uploads/') || raw.startsWith('/uploads/')) {
+    const path = raw.startsWith('/uploads/') ? `/api${raw}` : raw;
+    const origin = apiOrigin();
+    return origin ? `${origin}${path}` : path;
+  }
+  return raw;
+}
+
 async function request(path, { method = 'GET', body, token } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     method,

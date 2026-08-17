@@ -12,6 +12,8 @@ import { notificationsRoutes } from './routes/notifications.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { productionRoutes } from './routes/production.routes.js';
 import { followupsRoutes } from './routes/followups.routes.js';
+import path from 'path';
+import fs from 'fs';
 import { ensureUploadDirs, UPLOAD_ROOT } from './services/uploads.js';
 
 export const app = express();
@@ -54,21 +56,25 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 
-// Disk uploads — prefer /api/uploads (Hostinger often proxies only /api to Node)
-app.use('/api/uploads', express.static(UPLOAD_ROOT, {
-  fallthrough: true,
-  maxAge: '7d',
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
-app.use('/uploads', express.static(UPLOAD_ROOT, {
-  fallthrough: true,
-  maxAge: '7d',
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
+// Disk uploads under /api/uploads (Hostinger usually proxies /api → Node)
+app.use('/api/uploads', (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const rel = decodeURIComponent(String(req.path || '')).replace(/^\/+/, '');
+  if (!rel || rel.includes('..')) return res.status(400).json({ error: 'Invalid path' });
+  const root = path.resolve(UPLOAD_ROOT);
+  const abs = path.resolve(root, rel);
+  if (!abs.startsWith(root + path.sep) && abs !== root) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return next();
+  return res.sendFile(abs, {
+    headers: { 'X-Content-Type-Options': 'nosniff' },
+    maxAge: '7d',
+  });
+});
+app.use('/api/uploads', express.static(UPLOAD_ROOT, { fallthrough: true, maxAge: '7d' }));
+app.use('/uploads', express.static(UPLOAD_ROOT, { fallthrough: true, maxAge: '7d' }));
+console.log(`[uploads] serving from ${UPLOAD_ROOT}`);
 
 /** Load-balancer / uptime probe (no auth). */
 app.get('/health', healthCheck);

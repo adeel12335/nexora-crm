@@ -21,6 +21,7 @@ import {
   MAX_FILES_PER_COMMENT,
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
+import { resolveMediaUrl } from '../../api/client.js';
 
 const AVATAR_COLORS = ['#E07A3D', '#C45C26', '#7B5EA7', '#3D8B8B', '#C65A79', '#4E9A6A', '#2F6FED', '#B45309'];
 const DESC_COLLAPSE_AT = 280;
@@ -276,10 +277,42 @@ export default function CardDrawer({
 
   const feed = useMemo(() => {
     const items = commentList.map((entry) => ({ ...entry, _kind: 'comment' }));
+
+    // Also show card Attachments in this feed (Trello-style), unless already
+    // linked on a real comment.
+    const linkedIds = new Set();
+    for (const entry of commentList) {
+      for (const f of entry.files || []) {
+        if (f?.id != null) linkedIds.add(String(f.id));
+        if (f?.url) linkedIds.add(String(f.url));
+        if (f?.name) linkedIds.add(`name:${f.name}`);
+      }
+    }
+    for (const file of files) {
+      const already = (
+        (file?.id != null && linkedIds.has(String(file.id)))
+        || (file?.url && linkedIds.has(String(file.url)))
+        || (file?.name && linkedIds.has(`name:${file.name}`))
+      );
+      if (already) continue;
+      items.push({
+        id: `attachment-${file.id || file.url || file.name}`,
+        kind: 'attachment',
+        _kind: 'attachment',
+        author: 'Attachment',
+        avatar: null,
+        text: 'Attached a file',
+        files: [file],
+        time: file.uploadedAt ? undefined : 'now',
+        createdAt: file.uploadedAt || null,
+      });
+    }
+
     if (showActivityDetails) {
       for (const entry of activity || []) {
         const text = String(entry.text || '').trim();
         if (text === 'added a comment' || text === 'added a comment with files') continue;
+        if (/^uploaded \d+ file/.test(text)) continue;
         items.push({ ...entry, _kind: 'activity' });
       }
     }
@@ -289,7 +322,7 @@ export default function CardDrawer({
       return tb - ta;
     });
     return items;
-  }, [commentList, activity, showActivityDetails]);
+  }, [commentList, activity, showActivityDetails, files]);
 
   if (!card || !edit) return null;
 
@@ -915,7 +948,7 @@ export default function CardDrawer({
                           {file.url ? (
                             <a
                               className="plain-icon"
-                              href={file.url}
+                              href={resolveMediaUrl(file.url)}
                               download={file.name}
                               target="_blank"
                               rel="noreferrer"
@@ -1101,7 +1134,7 @@ export default function CardDrawer({
                               <a
                                 key={file.id || file.name}
                                 className="tool-btn"
-                                href={file.fileUrl}
+                                href={resolveMediaUrl(file.fileUrl)}
                                 download={file.name || undefined}
                                 target="_blank"
                                 rel="noreferrer"
@@ -1322,7 +1355,7 @@ export default function CardDrawer({
                 {feed.map((entry) => (
                   <article
                     key={entry.id}
-                    className={`card-activity-item${entry._kind === 'comment' ? ' is-comment' : ' is-system'}${entry._pending ? ' is-pending' : ''}`}
+                    className={`card-activity-item${entry._kind === 'comment' || entry._kind === 'attachment' ? ' is-comment' : ' is-system'}${entry._pending ? ' is-pending' : ''}`}
                   >
                     <InitialsAvatar name={entry.author} />
                     <div className="card-activity-body">
@@ -1355,13 +1388,13 @@ export default function CardDrawer({
                         </div>
                       ) : (
                         <>
-                          <div className={`card-comment-bubble${entry._kind === 'comment' ? '' : ' is-system'}`}>
+                          <div className={`card-comment-bubble${entry._kind === 'comment' || entry._kind === 'attachment' ? '' : ' is-system'}`}>
                             {entry.text ? <p>{entry.text}</p> : null}
-                            {entry._kind === 'comment' && Array.isArray(entry.files) && entry.files.length ? (
+                            {(entry._kind === 'comment' || entry._kind === 'attachment') && Array.isArray(entry.files) && entry.files.length ? (
                               <ul className="card-comment-files">
                                 {entry.files.map((file) => {
                                   const kind = fileKind(file.name);
-                                  const href = file.url || file.fileUrl || null;
+                                  const href = resolveMediaUrl(file.url || file.fileUrl || null);
                                   return (
                                     <li key={file.id || file.name}>
                                       <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
@@ -1388,8 +1421,7 @@ export default function CardDrawer({
                         </>
                       )}
                     </div>
-                  </article>
-                ))}
+                  </article>                ))}
               </div>
             ) : (
               <p className="card-empty-line">No comments yet — be the first</p>

@@ -563,7 +563,20 @@ export default function KanbanBoard() {
         liveUrl: form.liveUrl || '',
         fileList,
         deliveryList: [],
-        commentList: [],
+        commentList: fileList.length
+          ? [{
+              id: Date.now() + Math.random(),
+              kind: 'comment',
+              author: user?.name || 'You',
+              avatar: '/assets/avatar-jane.svg',
+              text: fileList.length === 1
+                ? `Attached ${fileList[0].name}`
+                : `Attached ${fileList.length} files`,
+              files: fileList,
+              time: 'now',
+              createdAt: new Date().toISOString(),
+            }]
+          : [],
       });
       const card = hydrateCard(data.card);
       setCards((prev) => [...prev, card]);
@@ -571,9 +584,6 @@ export default function KanbanBoard() {
       setDrawerOpen(true);
       setModalOpen(false);
       pushActivity(card.id, 'created this card');
-      if (fileList.length) {
-        pushActivity(card.id, `uploaded ${fileList.length} file${fileList.length > 1 ? 's' : ''}`);
-      }
       showToast(
         fileList.length
           ? `Card created with ${fileList.length} file${fileList.length > 1 ? 's' : ''}`
@@ -692,23 +702,42 @@ export default function KanbanBoard() {
       const hosted = await uploadFilesToHost(token, ok);
       const uploaded = hosted.map((f) => ({ ...f, _pending: true }));
       const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
-      patchCardLocal(cardId, { fileList: optimisticList });
-      pushActivity(cardId, `uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}`);
+      const attachComment = {
+        id: Date.now() + Math.random(),
+        kind: 'comment',
+        author: user?.name || 'You',
+        avatar: '/assets/avatar-jane.svg',
+        text: uploaded.length === 1
+          ? `Attached ${uploaded[0].name}`
+          : `Attached ${uploaded.length} files`,
+        files: uploaded.map(({ _pending, ...rest }) => rest),
+        time: 'now',
+        createdAt: new Date().toISOString(),
+        _pending: true,
+      };
+      const nextComments = [attachComment, ...(card.commentList || [])];
+      patchCardLocal(cardId, { fileList: optimisticList, commentList: nextComments });
       showToast(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`);
 
       enqueueCardSave(cardId, async () => {
         try {
           const latest = cardsRef.current.find((c) => c.id === cardId);
           const merged = (latest?.fileList || optimisticList).slice(0, MAX_FILES_PER_CARD);
-          await persistCard(cardId, { fileList: merged }, { sync: false });
+          const comments = latest?.commentList || nextComments;
+          await persistCard(cardId, { fileList: merged, commentList: comments }, { sync: false });
           patchCardLocal(cardId, {
             fileList: merged.map((f) => ({ ...f, _pending: false })),
+            commentList: comments.map((c) => (
+              String(c.id) === String(attachComment.id) ? { ...c, _pending: false } : c
+            )),
           });
         } catch (err) {
           const uploadedIds = new Set(uploaded.map((f) => String(f.id)));
           patchCardLocal(cardId, {
             fileList: (cardsRef.current.find((c) => c.id === cardId)?.fileList || [])
               .filter((f) => !uploadedIds.has(String(f.id))),
+            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
+              .filter((c) => String(c.id) !== String(attachComment.id)),
           });
           showToast(err.message || 'Upload failed');
         }

@@ -702,7 +702,20 @@ export default function ClientsPage() {
         liveUrl: String(pushForm.liveUrl || '').trim(),
         dueDate: payload.dueDate,
         fileList,
-        commentList: [],
+        commentList: fileList.length
+          ? [{
+              id: Date.now() + Math.random(),
+              kind: 'comment',
+              author: user?.name || 'Admin',
+              avatar: '/assets/avatar-jane.svg',
+              text: fileList.length === 1
+                ? `Attached ${fileList[0].name}`
+                : `Attached ${fileList.length} files`,
+              files: fileList,
+              time: 'now',
+              createdAt: new Date().toISOString(),
+            }]
+          : [],
       });
       // Status sync happens on the server via createCard
       showToast(`“${pushTarget.name}” pushed to Production Board`);
