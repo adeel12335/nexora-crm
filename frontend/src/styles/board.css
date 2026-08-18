@@ -69,6 +69,7 @@
   width: 272px;
   max-width: 272px;
   min-width: 272px;
+  max-height: calc(100vh - 200px);
   border: 1px solid var(--border);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
@@ -134,11 +135,15 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  align-content: flex-start;
   gap: 8px;
   padding: 10px;
-  min-height: 160px;
+  /* Critical: let this flex child shrink so overflow-y scrolls instead of
+     compressing .task-card children in a full column. */
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   max-height: calc(100vh - 260px);
-  flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -161,9 +166,13 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  /* Without this the column's flex layout squeezes cards instead of scrolling,
-     which clipped every card down to a sliver once a column filled up. */
+  /* Full columns used to squash every card to a title sliver. Keep natural
+     height and scroll the list instead — overflow:hidden alone zeroes the
+     flex min-size, so pin flex-grow/shrink and min-height explicitly. */
+  flex: 0 0 auto;
   flex-shrink: 0;
+  min-height: min-content;
+  height: auto;
   box-sizing: border-box;
   padding: 12px 12px 10px;
   border: 1px solid var(--border);

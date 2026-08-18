@@ -38,6 +38,12 @@ export default function TaskCard({
   const liveUrl = String(card.liveUrl || '').trim();
   const liveLike = isLiveLikeStage(card.stage);
   const touched = relativeTime(activityAt || card.updatedAt || card.createdAt);
+  const title = String(card.title || '').trim();
+  const clientName = String(card.client || '').trim();
+  // Avoid "John / John" when Trello-imported titles are just the client name.
+  const showClientLine = clientName && clientName.toLowerCase() !== title.toLowerCase()
+    && !title.toLowerCase().startsWith(`${clientName.toLowerCase()} —`)
+    && !title.toLowerCase().startsWith(`${clientName.toLowerCase()} -`);
 
   return (
     <article
@@ -62,7 +68,7 @@ export default function TaskCard({
       ) : null}
 
       <div className="card-top">
-        <strong>{card.title}</strong>
+        <strong>{title || 'Untitled'}</strong>
         {unreadCount > 0 ? (
           <span
             className="card-updates"
@@ -75,12 +81,11 @@ export default function TaskCard({
       </div>
 
       <div className="card-people">
-        <span className="company">{card.client}</span>
+        {showClientLine ? <span className="company">{clientName}</span> : null}
         {card.clientAgentName ? (
           <span className="card-owner">Client of {card.clientAgentName}</span>
         ) : null}
       </div>
-
       <div className="card-tags">
         <span className={`type-pill ${card.type}`}>{card.type === 'draft' ? 'Draft' : 'Revision'}</span>
         {showPriority ? (
