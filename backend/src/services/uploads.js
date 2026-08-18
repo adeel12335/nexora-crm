@@ -33,21 +33,15 @@ export function isAllowedUploadName(name) {
   return ALLOWED_EXT.has(fileExtOf(name));
 }
 
-/** Public site origin, e.g. https://….hostingersite.com (no trailing slash). */
-export function publicBaseFromRequest(req) {
-  const fromEnv = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
-  if (fromEnv) return fromEnv;
-  const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
-  const host = String(req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
-  if (!host) return '';
-  return `${proto}://${host}`;
-}
-
-export function toPublicUploadUrl(relativePath, publicBase = '') {
+/**
+ * Attachment URLs are stored host-less (`/api/uploads/...`) and the browser
+ * re-anchors them on the API origin. Baking in a host taken from proxy headers
+ * produced dead links whenever the request arrived through the site domain
+ * instead of the API domain.
+ */
+export function toPublicUploadUrl(relativePath) {
   const rel = String(relativePath || '').replace(/^\/+/, '');
-  const base = String(publicBase || '').replace(/\/$/, '');
-  // Under /api/uploads so Hostinger API proxy always serves the file
-  if (base) return `${base}/api/uploads/${rel}`;
+  // Under /api/uploads so the Hostinger API proxy always serves the file
   return `/api/uploads/${rel}`;
 }
 
@@ -68,7 +62,6 @@ export function saveUploadBuffer({
   buffer,
   originalName,
   mimeType = 'application/octet-stream',
-  publicBase = '',
   id = null,
 }) {
   ensureUploadDirs();
@@ -96,7 +89,7 @@ export function saveUploadBuffer({
     name: String(originalName || storedName).slice(0, 180),
     size,
     type: String(mimeType || 'application/octet-stream').slice(0, 120),
-    url: toPublicUploadUrl(relativePath, publicBase),
+    url: toPublicUploadUrl(relativePath),
     relativePath,
     uploadedAt: new Date().toISOString(),
   };
@@ -121,7 +114,7 @@ export function parseDataUrl(dataUrl) {
  * If file.url is a data: URL, write it to disk and return http(s) metadata.
  * Otherwise return the file unchanged (http URLs / already migrated).
  */
-export function materializeFileAttachment(file, { publicBase = '' } = {}) {
+export function materializeFileAttachment(file) {
   if (!file || typeof file !== 'object') return file;
   const url = String(file.url || file.fileUrl || '');
   if (!url.startsWith('data:')) {
@@ -144,7 +137,6 @@ export function materializeFileAttachment(file, { publicBase = '' } = {}) {
     buffer: parsed.buffer,
     originalName: file.name || 'file.bin',
     mimeType: file.type || parsed.mime,
-    publicBase,
     id: file.id,
   });
 }

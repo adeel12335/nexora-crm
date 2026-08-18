@@ -11,16 +11,23 @@ export function apiOrigin() {
   }
 }
 
-/** Turn relative /api/uploads/... (or /uploads/...) into an absolute Hostinger URL. */
+function uploadsUrl(path) {
+  const withApi = path.startsWith('/api/') ? path : `/api${path}`;
+  const origin = apiOrigin();
+  return origin ? `${origin}${withApi}` : withApi;
+}
+
+/** Turn an uploads path (or a stale absolute one) into a live API media URL. */
 export function resolveMediaUrl(url) {
   const raw = String(url || '').trim();
   if (!raw) return null;
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-  if (raw.startsWith('/api/uploads/') || raw.startsWith('/uploads/')) {
-    const path = raw.startsWith('/uploads/') ? `/api${raw}` : raw;
-    const origin = apiOrigin();
-    return origin ? `${origin}${path}` : path;
-  }
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  // Older rows stored the host that happened to serve the upload request, which
+  // dies whenever that host is the site domain instead of the API — re-anchor.
+  const stored = raw.match(/^https?:\/\/[^/]+(\/api\/uploads\/.+)$/i);
+  if (stored) return uploadsUrl(stored[1]);
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/api/uploads/') || raw.startsWith('/uploads/')) return uploadsUrl(raw);
   return raw;
 }
 

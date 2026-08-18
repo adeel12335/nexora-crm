@@ -25,6 +25,23 @@ import { resolveMediaUrl } from '../../api/client.js';
 
 const AVATAR_COLORS = ['#E07A3D', '#C45C26', '#7B5EA7', '#3D8B8B', '#C65A79', '#4E9A6A', '#2F6FED', '#B45309'];
 const DESC_COLLAPSE_AT = 280;
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+
+function isImageFile(file) {
+  if (String(file?.type || '').startsWith('image/')) return true;
+  return IMAGE_EXT.has(String(file?.name || '').split('.').pop()?.toLowerCase() || '');
+}
+
+/** Comments may only be edited / deleted by their author; admins may do both. */
+function ownsComment(entry, user) {
+  if (!entry || !user) return false;
+  if (user.role === 'admin') return true;
+  const ownerId = Number(entry.authorId);
+  if (Number.isInteger(ownerId) && ownerId > 0) return ownerId === Number(user.id);
+  // Legacy comments predate authorId — fall back to the stored display name.
+  const author = String(entry.author || '').trim().toLowerCase();
+  return Boolean(author) && author === String(user.name || '').trim().toLowerCase();
+}
 
 function deliveryFeedbackLabel(status) {
   return FEEDBACK_STATUS.find((s) => s.value === status)?.label || 'No feedback yet';
@@ -149,6 +166,7 @@ export default function CardDrawer({
   activity,
   comments,
   onAddComment,
+  currentUser = null,
   onUpdateCard,
   onDeleteCard,
   canEditMeta = true,
@@ -1395,16 +1413,28 @@ export default function CardDrawer({
                                 {entry.files.map((file) => {
                                   const kind = fileKind(file.name);
                                   const href = resolveMediaUrl(file.url || file.fileUrl || null);
+                                  const image = Boolean(href) && isImageFile(file);
                                   return (
-                                    <li key={file.id || file.name}>
-                                      <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
-                                      {href ? (
-                                        <a href={href} download={file.name || undefined} target="_blank" rel="noreferrer">
-                                          {file.name || 'Open file'}
+                                    <li key={file.id || file.name} className={image ? 'is-image' : ''}>
+                                      {image ? (
+                                        <a className="card-comment-thumb" href={href} target="_blank" rel="noreferrer">
+                                          <img src={href} alt={file.name || 'Attachment'} loading="lazy" />
                                         </a>
                                       ) : (
-                                        <span>{file.name || 'File'}</span>
+                                        <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
                                       )}
+                                      <span className="card-comment-file-meta">
+                                        {href ? (
+                                          <a href={href} target="_blank" rel="noreferrer">
+                                            {file.name || 'Open file'}
+                                          </a>
+                                        ) : (
+                                          <span className="card-comment-file-name">{file.name || 'File'}</span>
+                                        )}
+                                        <span className="card-comment-file-size">
+                                          {Number(file.size) > 0 ? formatFileSize(Number(file.size)) : (href ? 'Open' : 'Unavailable')}
+                                        </span>
+                                      </span>
                                     </li>
                                   );
                                 })}
@@ -1414,8 +1444,12 @@ export default function CardDrawer({
                           {entry._kind === 'comment' ? (
                             <div className="card-comment-links">
                               <button type="button" onClick={() => handleReply(entry)}>Reply</button>
-                              <button type="button" onClick={() => startEditComment(entry)}>Edit</button>
-                              <button type="button" onClick={() => setConfirmDeleteComment(entry)}>Delete</button>
+                              {ownsComment(entry, currentUser) ? (
+                                <>
+                                  <button type="button" onClick={() => startEditComment(entry)}>Edit</button>
+                                  <button type="button" onClick={() => setConfirmDeleteComment(entry)}>Delete</button>
+                                </>
+                              ) : null}
                             </div>
                           ) : null}
                         </>
