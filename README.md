@@ -5,7 +5,7 @@ MySQL backend (Phase 2).
    
 ## Structure      
 
-- [`frontend/`](frontend) — React (Vite) app. **This is the active app.**
+- [`frontend/`](frontend) — React (Vite) app. **This is the active app.** 
   Role-based routing for Admin, Manager, Agent and Production, an attendance
   system (check-in/checkout with late/off/deduction rules) and a Trello-style
   production board (draft/revision deadlines with auto alerts). Runs on mock 
