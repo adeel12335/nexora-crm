@@ -5,19 +5,13 @@ import { DayFilter } from '../filters/MonthFilter.jsx';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import BoardAlertModal from './BoardAlertModal.jsx';
 import {
-  FEEDBACK_STATUS,
   PRIORITY_OPTIONS,
   formatFileSize,
   fromDateInputValue,
   toDateInputValue,
   validateCardForm,
   validateComment,
-  validateDelivery,
-  validateDeliveryFeedback,
-  validateFeedback,
   validateFiles,
-  MAX_DELIVERIES_PER_CARD,
-  MAX_FILES_PER_DELIVERY,
   MAX_FILES_PER_COMMENT,
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
@@ -41,31 +35,6 @@ function ownsComment(entry, user) {
   // Legacy comments predate authorId — fall back to the stored display name.
   const author = String(entry.author || '').trim().toLowerCase();
   return Boolean(author) && author === String(user.name || '').trim().toLowerCase();
-}
-
-function deliveryFeedbackLabel(status) {
-  return FEEDBACK_STATUS.find((s) => s.value === status)?.label || 'No feedback yet';
-}
-
-function deliveryFeedbackPillClass(status) {
-  if (status === 'approved') return 'is-approved';
-  if (status === 'changes_requested') return 'is-changes';
-  if (status === 'pending') return 'is-pending';
-  return '';
-}
-
-function deliveryAttachmentList(item) {
-  if (Array.isArray(item?.files) && item.files.length) return item.files;
-  if (item?.fileUrl || item?.name) {
-    return [{
-      id: item.id,
-      name: item.name,
-      size: item.size,
-      type: item.type,
-      fileUrl: item.fileUrl,
-    }];
-  }
-  return [];
 }
 
 function initials(name) {
@@ -172,11 +141,6 @@ export default function CardDrawer({
   canEditMeta = true,
   onUploadFiles,
   onRemoveFile,
-  onAddDelivery,
-  onSaveDeliveryFeedback,
-  onRemoveDelivery,
-  canReviewDelivery = false,
-  onSaveFeedback,
   stages,
   assignees = [],
   crmClients = [],
@@ -184,29 +148,18 @@ export default function CardDrawer({
   hydrating = false,
 }) {
   const fileInputRef = useRef(null);
-  const deliveryFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
   const commentFileInputRef = useRef(null);
-  const deliverySectionRef = useRef(null);
   const [menu, setMenu] = useState(null);
   const [comment, setComment] = useState('');
   const [commentFiles, setCommentFiles] = useState([]);
-  const [deliveryDescription, setDeliveryDescription] = useState('');
-  const [deliveryUrl, setDeliveryUrl] = useState('');
-  const [deliveryFiles, setDeliveryFiles] = useState([]);
-  const [deliveryFeedbackDrafts, setDeliveryFeedbackDrafts] = useState({});
-  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [commentBusy, setCommentBusy] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [deliveryFeedbackBusy, setDeliveryFeedbackBusy] = useState(null);
   const [alert, setAlert] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState(null);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [edit, setEdit] = useState(null);
-  const [feedbackForm, setFeedbackForm] = useState(null);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
@@ -221,16 +174,9 @@ export default function CardDrawer({
     setMenu(null);
     setComment('');
     setCommentFiles([]);
-    setDeliveryDescription('');
-    setDeliveryUrl('');
-    setDeliveryFiles([]);
-    setDeliveryBusy(false);
     setCommentBusy(false);
     setUploadBusy(false);
-    setFeedbackBusy(false);
-    setDeliveryFeedbackBusy(null);
     setConfirmDeleteCard(false);
-    setConfirmDeleteDelivery(null);
     setDeleting(false);
     setEditingDesc(false);
     setDescExpanded(false);
@@ -250,24 +196,7 @@ export default function CardDrawer({
       liveUrl: card.liveUrl || '',
     });
     setDescDraft(card.description || '');
-    setFeedbackForm({
-      status: card.feedback?.status || 'none',
-      note: card.feedback?.note || '',
-      rating: card.feedback?.rating ?? '',
-    });
   }, [card?.id, open]);
-
-  useEffect(() => {
-    if (!card) return;
-    const drafts = {};
-    for (const item of card.deliveryList || []) {
-      drafts[item.id] = {
-        status: item.feedback?.status || 'none',
-        note: item.feedback?.note || '',
-      };
-    }
-    setDeliveryFeedbackDrafts(drafts);
-  }, [card?.id, open, card?.deliveryList]);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -289,9 +218,7 @@ export default function CardDrawer({
   }, [menu]);
 
   const files = card?.fileList || [];
-  const deliveries = card?.deliveryList || [];
   const commentList = comments || [];
-  const feedback = card?.feedback || { status: 'none' };
 
   const feed = useMemo(() => {
     const items = commentList.map((entry) => ({ ...entry, _kind: 'comment' }));
@@ -531,112 +458,6 @@ export default function CardDrawer({
     }
   }
 
-  async function handleDeliverySubmit(e) {
-    e.preventDefault();
-    if (deliveryBusy) return;
-    const result = validateDelivery(
-      { description: deliveryDescription, url: deliveryUrl, files: deliveryFiles },
-      deliveries,
-    );
-    if (!result.ok) {
-      showErrors('Cannot add delivery', result.errors);
-      return;
-    }
-    const payload = {
-      description: result.description,
-      url: result.url,
-      files: result.files,
-    };
-    setDeliveryDescription('');
-    setDeliveryUrl('');
-    setDeliveryFiles([]);
-    if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
-
-    setDeliveryBusy(true);
-    try {
-      const ok = await onAddDelivery?.(card.id, payload);
-      if (!ok) {
-        setDeliveryDescription(payload.description || '');
-        setDeliveryUrl(payload.url || '');
-        setDeliveryFiles(payload.files || []);
-      }
-    } finally {
-      setDeliveryBusy(false);
-    }
-  }
-
-  function handleDeliveryFilePick(e) {
-    const picked = Array.from(e.target.files || []);
-    if (!picked.length) return;
-    setDeliveryFiles((prev) => {
-      const merged = [...prev];
-      for (const file of picked) {
-        if (merged.length >= MAX_FILES_PER_DELIVERY) break;
-        const duplicate = merged.some((f) => f.name === file.name && f.size === file.size);
-        if (!duplicate) merged.push(file);
-      }
-      return merged.slice(0, MAX_FILES_PER_DELIVERY);
-    });
-    e.target.value = '';
-  }
-
-  function removeDeliveryFile(index) {
-    setDeliveryFiles((prev) => prev.filter((_, i) => i !== index));
-    if (deliveryFileInputRef.current) deliveryFileInputRef.current.value = '';
-  }
-
-  async function handleDeliveryFeedbackSave(deliveryId) {
-    if (deliveryFeedbackBusy) return;
-    const draft = deliveryFeedbackDrafts[deliveryId] || { status: 'none', note: '' };
-    const errors = validateDeliveryFeedback(draft);
-    if (errors.length) {
-      showErrors('Feedback incomplete', errors);
-      return;
-    }
-    setDeliveryFeedbackBusy(deliveryId);
-    try {
-      const ok = await onSaveDeliveryFeedback?.(card.id, deliveryId, {
-        status: draft.status,
-        note: String(draft.note || '').trim(),
-        updatedAt: new Date().toISOString(),
-        author: 'You',
-      });
-      if (ok) showErrors('Saved', ['Delivery feedback updated.'], 'success');
-    } finally {
-      setDeliveryFeedbackBusy(null);
-    }
-  }
-
-  async function handleFeedbackSave(e) {
-    e.preventDefault();
-    if (feedbackBusy) return;
-    const errors = validateFeedback(feedbackForm);
-    if (errors.length) {
-      showErrors('Feedback incomplete', errors);
-      return;
-    }
-    setFeedbackBusy(true);
-    try {
-      const ok = await onSaveFeedback(card.id, {
-        status: feedbackForm.status,
-        note: String(feedbackForm.note || '').trim(),
-        rating: feedbackForm.rating === '' ? null : Number(feedbackForm.rating),
-        updatedAt: new Date().toISOString(),
-        author: 'You',
-      });
-      if (ok) showErrors('Feedback saved', ['Client feedback has been updated.'], 'success');
-    } finally {
-      setFeedbackBusy(false);
-    }
-  }
-
-  function scrollToDelivery() {
-    setMenu(null);
-    requestAnimationFrame(() => {
-      deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }
-
   return (
     <>
       <aside
@@ -742,9 +563,6 @@ export default function CardDrawer({
                     <button type="button" className="card-pop-item" onClick={() => fileInputRef.current?.click()}>
                       <Icon id="i-paperclip" /> Attachment
                     </button>
-                    <button type="button" className="card-pop-item" onClick={scrollToDelivery}>
-                      <Icon id="i-check" /> Checklist
-                    </button>
                     <button type="button" className="card-pop-item" onClick={() => setMenu('labels')}>
                       <Icon id="i-tag" /> Labels
                     </button>
@@ -821,8 +639,6 @@ export default function CardDrawer({
                   </Popover>
                 ) : null}
               </ActionBtn>
-
-              <ActionBtn icon="i-check" label="Checklist" open={false} onClick={scrollToDelivery} />
 
               <ActionBtn icon="i-users" label="Members" open={menu === 'members'} onClick={() => toggleMenu('members')}>
                 {menu === 'members' ? (
@@ -1008,286 +824,6 @@ export default function CardDrawer({
                 <p className="card-empty-line">No attachments yet</p>
               )}
             </section>
-
-            <section className="card-section" ref={deliverySectionRef}>
-              <div className="card-section-head">
-                <h3>
-                  <Icon id="i-check" /> Delivery
-                </h3>
-              </div>
-              <form className="detail-form delivery-compose" onSubmit={handleDeliverySubmit} noValidate>
-                <div className="delivery-compose-head">
-                  <p>Optional description, link, or files — max {MAX_DELIVERIES_PER_CARD} deliveries, {MAX_FILES_PER_DELIVERY} files each.</p>
-                </div>
-                <label>
-                  Description <span className="field-hint">(optional)</span>
-                  <textarea
-                    value={deliveryDescription}
-                    onChange={(e) => setDeliveryDescription(e.target.value)}
-                    placeholder="What was delivered?"
-                    maxLength={1000}
-                    rows={3}
-                    disabled={deliveryBusy}
-                  />
-                </label>
-                <label>
-                  Link <span className="field-hint">(optional)</span>
-                  <input
-                    type="text"
-                    inputMode="url"
-                    autoComplete="url"
-                    value={deliveryUrl}
-                    onChange={(e) => setDeliveryUrl(e.target.value)}
-                    placeholder="https://drive.google.com/…"
-                    maxLength={500}
-                    disabled={deliveryBusy}
-                  />
-                </label>
-                <div className="delivery-file-field">
-                  <span className="delivery-file-label">
-                    Files <span className="field-hint">(optional, up to {MAX_FILES_PER_DELIVERY})</span>
-                  </span>
-                  <button
-                    type="button"
-                    className="delivery-file-btn"
-                    onClick={() => deliveryFileInputRef.current?.click()}
-                    disabled={deliveryBusy || deliveryFiles.length >= MAX_FILES_PER_DELIVERY}
-                  >
-                    <Icon id="i-paperclip" />
-                    <span>
-                      {deliveryFiles.length
-                        ? `${deliveryFiles.length} file${deliveryFiles.length > 1 ? 's' : ''} selected`
-                        : 'Choose files'}
-                    </span>
-                  </button>
-                  <input
-                    ref={deliveryFileInputRef}
-                    type="file"
-                    hidden
-                    multiple
-                    onChange={handleDeliveryFilePick}
-                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.mp4,.mov,.webm"
-                    disabled={deliveryBusy}
-                  />
-                  {deliveryFiles.length ? (
-                    <ul className="delivery-selected-files">
-                      {deliveryFiles.map((file, index) => (
-                        <li key={`${file.name}-${file.size}-${index}`}>
-                          <span className="file-icon"><Icon id="i-paperclip" /></span>
-                          <span>{file.name} · {formatFileSize(file.size || 0)}</span>
-                          <button
-                            type="button"
-                            className="plain-icon"
-                            disabled={deliveryBusy}
-                            aria-label={`Remove ${file.name}`}
-                            onClick={() => removeDeliveryFile(index)}
-                          >
-                            <Icon id="i-close" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-                <button
-                  type="submit"
-                  className={`primary-btn delivery-submit${deliveryBusy ? ' is-busy' : ''}`}
-                  disabled={
-                    deliveryBusy
-                    || deliveries.length >= MAX_DELIVERIES_PER_CARD
-                    || (!deliveryDescription.trim() && !deliveryUrl.trim() && !deliveryFiles.length)
-                  }
-                >
-                  {deliveryBusy ? (
-                    <>
-                      <span className="btn-spinner" aria-hidden="true" />
-                      Adding…
-                    </>
-                  ) : (
-                    'Add delivery'
-                  )}
-                </button>
-              </form>
-
-              {deliveries.length ? (
-                <ul className="delivery-list">
-                  {deliveries.map((item) => {
-                    const fb = item.feedback || { status: 'none', note: '' };
-                    const draft = deliveryFeedbackDrafts[item.id] || {
-                      status: fb.status || 'none',
-                      note: fb.note || '',
-                    };
-                    const linkHref = item.url || null;
-                    const attachments = deliveryAttachmentList(item);
-                    return (
-                      <li key={item.id} className={`delivery-card${item._pending ? ' is-pending' : ''}`}>
-                        <div className="delivery-card-top">
-                          <p>{item.description || attachments[0]?.name || item.url || 'Delivery'}</p>
-                          <div className="delivery-card-actions">
-                            {item._pending ? (
-                              <span className="delivery-pending-pill">
-                                <span className="btn-spinner btn-spinner--dark" aria-hidden="true" />
-                                Saving…
-                              </span>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="plain-icon"
-                              aria-label="Remove delivery"
-                              disabled={Boolean(item._pending) || deliveryBusy}
-                              onClick={() => setConfirmDeleteDelivery(item)}
-                            >
-                              <Icon id="i-close" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="delivery-assets">
-                          {linkHref ? (
-                            <a className="tool-btn" href={linkHref} target="_blank" rel="noreferrer">
-                              <Icon id="i-link" /> Open link
-                            </a>
-                          ) : null}
-                          {attachments.map((file) => (
-                            file.fileUrl ? (
-                              <a
-                                key={file.id || file.name}
-                                className="tool-btn"
-                                href={resolveMediaUrl(file.fileUrl)}
-                                download={file.name || undefined}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <Icon id="i-paperclip" /> {file.name || 'Open file'}
-                              </a>
-                            ) : file.name ? (
-                              <span key={file.id || file.name} className="delivery-kind-pill">{file.name}</span>
-                            ) : null
-                          ))}
-                          {!linkHref && !attachments.length ? (
-                            <span className="delivery-kind-pill">Note only</span>
-                          ) : null}
-                        </div>
-                        {canReviewDelivery ? (
-                          <div className="delivery-feedback detail-form">
-                            <label>
-                              Admin feedback
-                              <FancySelect
-                                fullWidth
-                                value={draft.status}
-                                onChange={(status) => setDeliveryFeedbackDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: { ...draft, status },
-                                }))}
-                                options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
-                              />
-                            </label>
-                            <label>
-                              Note
-                              <textarea
-                                value={draft.note}
-                                onChange={(e) => setDeliveryFeedbackDrafts((prev) => ({
-                                  ...prev,
-                                  [item.id]: { ...draft, note: e.target.value },
-                                }))}
-                                placeholder="Feedback for this delivery…"
-                                maxLength={1000}
-                                rows={2}
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              className={`primary-btn${deliveryFeedbackBusy === item.id ? ' is-busy' : ''}`}
-                              disabled={Boolean(item._pending) || deliveryFeedbackBusy === item.id}
-                              onClick={() => handleDeliveryFeedbackSave(item.id)}
-                            >
-                              {deliveryFeedbackBusy === item.id ? (
-                                <>
-                                  <span className="btn-spinner" aria-hidden="true" />
-                                  Saving…
-                                </>
-                              ) : (
-                                'Save feedback'
-                              )}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="delivery-feedback-readonly">
-                            <span className={`delivery-kind-pill ${deliveryFeedbackPillClass(fb.status)}`}>
-                              {deliveryFeedbackLabel(fb.status)}
-                            </span>
-                            {fb.note ? <strong>{fb.note}</strong> : null}
-                            {fb.updatedAt ? (
-                              <span className="muted-hint">
-                                {fb.author || 'Admin'} · {formatStamp(fb.updatedAt)}
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="card-empty-line">No deliveries yet</p>
-              )}
-            </section>
-
-            {feedbackForm ? (
-              <section className="card-section">
-                <div className="card-section-head">
-                  <h3>
-                    <Icon id="i-star" /> Feedback
-                  </h3>
-                </div>
-                <form className="detail-form" onSubmit={handleFeedbackSave} noValidate>
-                  <label>
-                    Status
-                    <FancySelect
-                      fullWidth
-                      value={feedbackForm.status}
-                      onChange={(status) => setFeedbackForm((f) => ({ ...f, status }))}
-                      options={FEEDBACK_STATUS.map((s) => ({ value: s.value, label: s.label }))}
-                    />
-                  </label>
-                  <label>
-                    Rating (optional)
-                    <FancySelect
-                      fullWidth
-                      isClearable
-                      value={feedbackForm.rating}
-                      onChange={(rating) => setFeedbackForm((f) => ({ ...f, rating }))}
-                      placeholder="No rating"
-                      options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} / 5` }))}
-                    />
-                  </label>
-                  <label>
-                    Feedback note
-                    <textarea
-                      value={feedbackForm.note}
-                      onChange={(e) => setFeedbackForm((f) => ({ ...f, note: e.target.value }))}
-                      placeholder="What did the client say?"
-                      maxLength={1000}
-                      rows={3}
-                    />
-                  </label>
-                  {feedback.updatedAt && (
-                    <p className="muted-hint">
-                      Last updated by {feedback.author || '—'} · {formatStamp(feedback.updatedAt)}
-                    </p>
-                  )}
-                  <button type="submit" className={`primary-btn${feedbackBusy ? ' is-busy' : ''}`} disabled={feedbackBusy}>
-                    {feedbackBusy ? (
-                      <>
-                        <span className="btn-spinner" aria-hidden="true" />
-                        Saving…
-                      </>
-                    ) : (
-                      'Save feedback'
-                    )}
-                  </button>
-                </form>
-              </section>
-            ) : null}
           </div>
 
           <aside className="card-modal-side">
@@ -1486,24 +1022,6 @@ export default function CardDrawer({
           setConfirmDelete(null);
         }}
         onCancel={() => setConfirmDelete(null)}
-      />
-
-      <BoardAlertModal
-        open={Boolean(confirmDeleteDelivery)}
-        title="Remove delivery?"
-        message={
-          confirmDeleteDelivery
-            ? `"${String(confirmDeleteDelivery.description || 'Delivery').slice(0, 80)}" will be removed.`
-            : ''
-        }
-        tone="warn"
-        confirmLabel="Remove"
-        cancelLabel="Cancel"
-        onConfirm={() => {
-          if (confirmDeleteDelivery) onRemoveDelivery?.(card.id, confirmDeleteDelivery.id);
-          setConfirmDeleteDelivery(null);
-        }}
-        onCancel={() => setConfirmDeleteDelivery(null)}
       />
 
       <BoardAlertModal

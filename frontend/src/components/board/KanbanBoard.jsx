@@ -7,7 +7,7 @@ import NewCardModal from './NewCardModal.jsx';
 import { avatarPool, productionStages } from '../../data/mockData.js';
 import { requiresLiveLink, isLiveLikeStage, normalizeProductionStage } from '../../data/productionStages.js';
 import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
-import { isHighPriority, validateFiles, MAX_FILES_PER_CARD, MAX_DELIVERIES_PER_CARD } from '../../utils/boardValidation.js';
+import { isHighPriority, validateFiles, MAX_FILES_PER_CARD } from '../../utils/boardValidation.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
@@ -258,51 +258,19 @@ export default function KanbanBoard() {
         return rest;
       });
     }
-    if ('deliveryList' in patch) {
-      body.deliveryList = (patch.deliveryList || []).map(({ _pending, ...rest }) => {
-        if (_pending) return rest;
-        const stripFile = (f) => {
-          if (!f) return f;
-          if (f.fileUrl && String(f.fileUrl).startsWith('data:')) {
-            const { fileUrl, ...meta } = f;
-            return meta;
-          }
-          if (f.url && String(f.url).startsWith('data:')) {
-            const { url, ...meta } = f;
-            return meta;
-          }
-          return f;
-        };
-        return {
-          ...rest,
-          fileUrl: rest.fileUrl && String(rest.fileUrl).startsWith('data:') ? undefined : rest.fileUrl,
-          files: Array.isArray(rest.files) ? rest.files.map(stripFile) : rest.files,
-        };
-      });
-    }
-    if ('feedback' in patch) body.feedback = patch.feedback;
+    // deliveryList / feedback are never sent: the card popup no longer edits
+    // them, so the API keeps whatever it already has stored.
     const data = await api.updateProductionCard(token, cardId, body);
     window.setTimeout(() => {
       window.dispatchEvent(new Event('nexora:notifications-changed'));
     }, 900);
-    if (!sync) {
-      const prev = cardsRef.current.find((c) => c.id === cardId);
-      const next = hydrateCard(data.card);
-      if (prev) {
-        next.fileList = mergeFileLists(prev.fileList || [], next.fileList || []);
-        next.commentList = mergeCommentLists(prev.commentList || [], next.commentList || []);
-        next.deliveryList = mergeDeliveryLists(prev.deliveryList || [], next.deliveryList || []);
-      }
-      return next;
-    }
     const prev = cardsRef.current.find((c) => c.id === cardId);
     const next = hydrateCard(data.card);
     if (prev) {
       next.fileList = mergeFileLists(prev.fileList || [], next.fileList || []);
       next.commentList = mergeCommentLists(prev.commentList || [], next.commentList || []);
-      next.deliveryList = mergeDeliveryLists(prev.deliveryList || [], next.deliveryList || []);
     }
-    return replaceCard(next);
+    return sync ? replaceCard(next) : next;
   }
 
   const loadUnreadCards = useCallback(async () => {
@@ -389,36 +357,6 @@ export default function KanbanBoard() {
     return merged;
   }
 
-  function deliveryFilesOf(item) {
-    if (Array.isArray(item?.files) && item.files.length) return item.files;
-    if (item?.fileUrl || item?.name) {
-      return [{ id: item.id, name: item.name, size: item.size, type: item.type, fileUrl: item.fileUrl }];
-    }
-    return [];
-  }
-
-  function mergeDeliveryLists(localList = [], serverList = []) {
-    return mergeById(localList, serverList, (local, server) => {
-      const localFileById = new Map(deliveryFilesOf(local).map((f) => [String(f.id || f.name), f]));
-      const files = deliveryFilesOf(server).map((f) => {
-        const localFile = localFileById.get(String(f.id || f.name));
-        return { ...f, fileUrl: f.fileUrl || localFile?.fileUrl || null };
-      });
-      const primary = files[0] || null;
-      return {
-        ...local,
-        ...server,
-        files,
-        name: primary?.name || server.name || local.name || null,
-        size: primary?.size ?? server.size ?? local.size ?? null,
-        type: primary?.type || server.type || local.type || null,
-        fileUrl: primary?.fileUrl || server.fileUrl || local.fileUrl || null,
-        url: server.url || local.url || null,
-        _pending: local._pending,
-      };
-    });
-  }
-
   function mergeFileLists(localList = [], serverList = []) {
     return mergeById(localList, serverList, (local, server) => ({
       ...local,
@@ -456,8 +394,8 @@ export default function KanbanBoard() {
     setDrawerOpen(true);
     markCardAlertsRead(id);
     setHydratingId(id);
-    // Hydrate full card (file data URLs) in background after light list load.
-    // Merge with any optimistic local edits so comments/deliveries don't vanish.
+    // Hydrate full card in the background after the light list load. Merge with
+    // any optimistic local edits so comments and attachments don't vanish.
     api.getProductionCard(token, id)
       .then((data) => {
         if (!data?.card) return;
@@ -470,14 +408,7 @@ export default function KanbanBoard() {
         replaceCard({
           ...server,
           commentList: mergeCommentLists(local.commentList || [], server.commentList || []),
-          deliveryList: mergeDeliveryLists(local.deliveryList || [], server.deliveryList || []),
           fileList: mergeFileLists(local.fileList || [], server.fileList || []),
-          feedback: local.feedback?.updatedAt && (
-            !server.feedback?.updatedAt
-            || String(local.feedback.updatedAt) > String(server.feedback.updatedAt)
-          )
-            ? local.feedback
-            : (server.feedback || local.feedback),
         });
       })
       .catch(() => {})
@@ -775,153 +706,6 @@ export default function KanbanBoard() {
     });
   }
 
-  async function handleAddDelivery(cardId, { description, url, file, files }) {
-    const card = cardsRef.current.find((c) => c.id === cardId);
-    if (!card) return false;
-    const existing = card.deliveryList || [];
-    if (existing.length >= MAX_DELIVERIES_PER_CARD) {
-      showToast(`A card can have at most ${MAX_DELIVERIES_PER_CARD} deliveries`);
-      return false;
-    }
-
-    const picked = Array.isArray(files) && files.length
-      ? files
-      : (file ? [file] : []);
-
-    let fileEntries = [];
-    try {
-      const hosted = await uploadFilesToHost(token, picked);
-      fileEntries = hosted.map((f) => ({
-        id: f.id,
-        name: f.name,
-        size: f.size,
-        type: f.type,
-        fileUrl: f.url,
-      }));
-    } catch (err) {
-      showToast(err.message || 'Could not upload file');
-      return false;
-    }
-
-    const primary = fileEntries[0] || null;
-    const entry = {
-      id: localId('delivery'),
-      description,
-      url: url || null,
-      name: primary?.name || null,
-      size: primary?.size ?? null,
-      type: primary?.type || null,
-      fileUrl: primary?.fileUrl || null,
-      files: fileEntries,
-      createdAt: new Date().toISOString(),
-      createdBy: user
-        ? { id: user.id, name: user.name, role: user.role }
-        : null,
-      feedback: { status: 'none', note: '', updatedAt: null, author: null },
-      _pending: true,
-    };
-
-    const deliveryList = [entry, ...existing].slice(0, MAX_DELIVERIES_PER_CARD);
-    patchCardLocal(cardId, { deliveryList });
-    pushActivity(cardId, fileEntries.length > 1 ? `added a delivery (${fileEntries.length} files)` : 'added a delivery');
-    showToast(fileEntries.length > 1 ? `Delivery added (${fileEntries.length} files)` : 'Delivery added');
-
-    enqueueCardSave(cardId, async () => {
-      try {
-        const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = (latest?.deliveryList || deliveryList).slice(0, MAX_DELIVERIES_PER_CARD);
-        await persistCard(cardId, { deliveryList: merged }, { sync: false });
-        patchCardLocal(cardId, {
-          deliveryList: merged.map((d) => ({ ...d, _pending: false })),
-        });
-        showToast('Delivery saved');
-      } catch (err) {
-        patchCardLocal(cardId, {
-          deliveryList: (cardsRef.current.find((c) => c.id === cardId)?.deliveryList || [])
-            .filter((d) => String(d.id) !== String(entry.id)),
-        });
-        showToast(err.message || 'Could not save delivery');
-      }
-    });
-
-    return true;
-  }
-
-  function handleSaveDeliveryFeedback(cardId, deliveryId, feedback) {
-    const card = cardsRef.current.find((c) => c.id === cardId);
-    if (!card) return false;
-    const previous = card.deliveryList || [];
-    const deliveryList = previous.map((item) => (
-      Number(item.id) === Number(deliveryId) || String(item.id) === String(deliveryId)
-        ? {
-            ...item,
-            feedback: {
-              status: feedback.status,
-              note: feedback.note || '',
-              updatedAt: feedback.updatedAt || new Date().toISOString(),
-              author: feedback.author || user?.name || 'Admin',
-            },
-          }
-        : item
-    ));
-    patchCardLocal(cardId, { deliveryList });
-    pushActivity(cardId, `reviewed a delivery (${feedback.status.replaceAll('_', ' ')})`);
-    showToast('Delivery feedback saved');
-
-    enqueueCardSave(cardId, async () => {
-      try {
-        const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = latest?.deliveryList || deliveryList;
-        await persistCard(cardId, { deliveryList: merged }, { sync: false });
-        patchCardLocal(cardId, { deliveryList: merged });
-      } catch (err) {
-        patchCardLocal(cardId, { deliveryList: previous });
-        showToast(err.message || 'Could not save delivery feedback');
-      }
-    });
-    return true;
-  }
-
-  function handleRemoveDelivery(cardId, deliveryId) {
-    const card = cardsRef.current.find((c) => c.id === cardId);
-    if (!card) return;
-    const previous = card.deliveryList || [];
-    const removed = previous.find((d) => d.id === deliveryId);
-    const deliveryList = previous.filter((d) => d.id !== deliveryId);
-    patchCardLocal(cardId, { deliveryList });
-    if (removed) pushActivity(cardId, 'removed a delivery');
-    showToast('Delivery removed');
-
-    enqueueCardSave(cardId, async () => {
-      try {
-        const latest = cardsRef.current.find((c) => c.id === cardId);
-        const merged = (latest?.deliveryList || deliveryList)
-          .filter((d) => String(d.id) !== String(deliveryId));
-        await persistCard(cardId, { deliveryList: merged }, { sync: false });
-        patchCardLocal(cardId, { deliveryList: merged });
-      } catch (err) {
-        patchCardLocal(cardId, { deliveryList: previous });
-        showToast(err.message || 'Could not remove delivery');
-      }
-    });
-  }
-
-  async function handleSaveFeedback(cardId, feedback) {
-    const card = cardsRef.current.find((c) => c.id === cardId);
-    const previous = card?.feedback;
-    patchCardLocal(cardId, { feedback });
-    pushActivity(cardId, `set feedback to "${feedback.status.replaceAll('_', ' ')}"`);
-    showToast('Feedback saved');
-    try {
-      await persistCard(cardId, { feedback }, { sync: false });
-      return true;
-    } catch (err) {
-      if (previous) patchCardLocal(cardId, { feedback: previous });
-      showToast(err.message || 'Could not save feedback');
-      return false;
-    }
-  }
-
   const comments = selectedCard?.commentList || [];
   const activity = selectedCard
     ? (activityByCard[selectedCard.id] || defaultActivity(selectedCard))
@@ -1014,11 +798,6 @@ export default function KanbanBoard() {
         canEditMeta={canEditCardMeta}
         onUploadFiles={handleUploadFiles}
         onRemoveFile={handleRemoveFile}
-        onAddDelivery={handleAddDelivery}
-        onSaveDeliveryFeedback={handleSaveDeliveryFeedback}
-        onRemoveDelivery={handleRemoveDelivery}
-        canReviewDelivery={isAdmin}
-        onSaveFeedback={handleSaveFeedback}
         stages={productionStages}
         assignees={assignees}
         crmClients={crmClients}
