@@ -485,36 +485,25 @@ export function buildProductionCardEvents({
 }
 
 /**
- * Assignee + all admins, excluding the person who made the change.
+ * All active production users + all admins, excluding whoever made the change.
+ * So: admin acts → whole production team (+ other admins);
+ * production acts → all admins (+ rest of production team).
  * Each recipient gets their own unread in-app alert until they mark it read.
  */
 async function getProductionAlertRecipients({ assigneeId, actorUserId = null }) {
   const recipients = new Map();
 
-  if (assigneeId) {
-    const [[user]] = await pool.query(
-      `SELECT id, whatsapp_number FROM users WHERE id = ? AND is_active = 1`,
-      [assigneeId],
-    );
-    if (user) {
-      recipients.set(Number(user.id), {
-        userId: user.id,
-        whatsappNumber: user.whatsapp_number,
-        role: 'assignee',
-      });
-    }
-  }
-
-  const [admins] = await pool.query(
-    `SELECT id, whatsapp_number FROM users WHERE role = 'admin' AND is_active = 1`,
+  const [rows] = await pool.query(
+    `SELECT id, role, whatsapp_number FROM users
+     WHERE is_active = 1 AND role IN ('admin', 'production')`,
   );
-  for (const admin of admins) {
-    const id = Number(admin.id);
-    if (recipients.has(id)) continue;
+  for (const user of rows) {
+    const id = Number(user.id);
+    const isAssignee = assigneeId && id === Number(assigneeId);
     recipients.set(id, {
-      userId: admin.id,
-      whatsappNumber: admin.whatsapp_number,
-      role: 'admin',
+      userId: user.id,
+      whatsappNumber: user.whatsapp_number,
+      role: isAssignee ? 'assignee' : user.role,
     });
   }
 
@@ -523,8 +512,8 @@ async function getProductionAlertRecipients({ assigneeId, actorUserId = null }) 
 }
 
 /**
- * Stage / priority / comment / delivery / feedback → assignee + admins (in-app),
- * WhatsApp to the assignee, optional group.
+ * Stage / priority / comment / file → all production + all admins (in-app).
+ * WhatsApp DM stays on the card assignee only (optional group still applies).
  */
 export async function notifyProductionCardChange({
   userId,
