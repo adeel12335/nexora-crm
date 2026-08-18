@@ -532,6 +532,23 @@ function enforceCommentPermissions(incoming, previous, user) {
   return out;
 }
 
+/**
+ * When a client re-saves comments without base64/data URLs (edit/delete),
+ * restore each attachment's prior url by file id so files don't vanish.
+ */
+function mergeCommentFileUrls(incoming, previous = []) {
+  if (!Array.isArray(incoming)) return incoming;
+  const prevById = new Map((Array.isArray(previous) ? previous : []).map((c) => [String(c.id), c]));
+  return incoming.map((comment) => {
+    const prev = prevById.get(String(comment?.id));
+    if (!prev || !Array.isArray(comment?.files)) return comment;
+    return {
+      ...comment,
+      files: mergeIncomingFileList(comment.files, prev.files || []),
+    };
+  });
+}
+
 function defaultDeliveryFeedback(raw) {
   const allowed = new Set(['none', 'pending', 'approved', 'changes_requested']);
   const status = allowed.has(String(raw?.status || 'none')) ? String(raw.status) : 'none';
@@ -1069,7 +1086,10 @@ export async function updateCard(req, res) {
     ? mergeIncomingFileList(body.fileList, prevExtras.fileList)
     : prevExtras.fileList;
   const nextCommentList = body.commentList !== undefined
-    ? enforceCommentPermissions(body.commentList, prevExtras.commentList, req.user)
+    ? mergeCommentFileUrls(
+      enforceCommentPermissions(body.commentList, prevExtras.commentList, req.user),
+      prevExtras.commentList,
+    )
     : prevExtras.commentList;
   const { extras: matured } = materializeExtrasDataUrls({
     commentList: nextCommentList,

@@ -395,13 +395,16 @@ export default function CardDrawer({
 
   async function saveEditComment(entry) {
     const nextText = commentDraft.trim();
-    const err = validateComment(nextText);
+    const existingFiles = Array.isArray(entry.files) ? entry.files : [];
+    const err = validateComment(nextText, existingFiles);
     if (err) {
       showErrors('Comment not saved', [err]);
       return;
     }
     const nextList = commentList.map((item) => (
-      String(item.id) === String(entry.id) ? { ...item, text: nextText } : item
+      String(item.id) === String(entry.id)
+        ? { ...item, text: nextText, files: existingFiles }
+        : item
     ));
     const ok = await onUpdateCard(card.id, { commentList: nextList });
     if (ok) setEditingCommentId(null);
