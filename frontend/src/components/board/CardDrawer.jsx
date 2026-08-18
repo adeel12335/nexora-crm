@@ -16,8 +16,8 @@ import {
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
 import { resolveMediaUrl } from '../../api/client.js';
+import Avatar from './Avatar.jsx';
 
-const AVATAR_COLORS = ['#E07A3D', '#C45C26', '#7B5EA7', '#3D8B8B', '#C65A79', '#4E9A6A', '#2F6FED', '#B45309'];
 const DESC_COLLAPSE_AT = 280;
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
@@ -35,19 +35,6 @@ function ownsComment(entry, user) {
   // Legacy comments predate authorId — fall back to the stored display name.
   const author = String(entry.author || '').trim().toLowerCase();
   return Boolean(author) && author === String(user.name || '').trim().toLowerCase();
-}
-
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
-
-function colorFor(name) {
-  let hash = 0;
-  for (const ch of String(name || '')) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
 function formatStamp(value, fallback = '') {
@@ -86,14 +73,6 @@ function fileKind(name) {
     csv: { label: 'CSV', tone: 'green' },
   };
   return map[ext] || { label: (ext || 'FILE').toUpperCase().slice(0, 4), tone: 'gray' };
-}
-
-function InitialsAvatar({ name }) {
-  return (
-    <span className="card-avatar" style={{ background: colorFor(name) }} aria-hidden="true">
-      {initials(name)}
-    </span>
-  );
 }
 
 function ActionBtn({ icon, label, open, onClick, children, ariaLabel }) {
@@ -911,7 +890,7 @@ export default function CardDrawer({
                     key={entry.id}
                     className={`card-activity-item${entry._kind === 'comment' || entry._kind === 'attachment' ? ' is-comment' : ' is-system'}${entry._pending ? ' is-pending' : ''}`}
                   >
-                    <InitialsAvatar name={entry.author} />
+                    <Avatar name={entry.author} size={32} className="card-avatar" />
                     <div className="card-activity-body">
                       <p className="card-activity-meta">
                         <strong>{entry.author}</strong>

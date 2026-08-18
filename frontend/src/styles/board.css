@@ -133,6 +133,7 @@
 .card-list {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding: 10px;
   min-height: 160px;
@@ -140,58 +141,103 @@
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.card-list::-webkit-scrollbar { width: 8px; }
+.card-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background-clip: content-box;
+}
+.card-list::-webkit-scrollbar-track { background: transparent; }
 .task-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  /* Without this the column's flex layout squeezes cards instead of scrolling,
+     which clipped every card down to a sliver once a column filled up. */
+  flex-shrink: 0;
   box-sizing: border-box;
-  padding: 12px;
+  padding: 12px 12px 10px;
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--canvas);
-  box-shadow: 0 2px 8px rgba(60, 45, 30, .04);
+  box-shadow: 0 1px 2px rgba(60, 45, 30, .06);
   cursor: pointer;
   overflow: hidden;
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color .18s, box-shadow .18s, transform .18s;
 }
 .task-card:focus-visible { outline: 3px solid rgba(198,90,121,.28); outline-offset: 2px; }
-.task-card:hover { border-color: color-mix(in srgb, var(--stage) 42%, var(--border)); box-shadow: 0 6px 16px rgba(60,45,30,.08); }
+.task-card:hover {
+  border-color: color-mix(in srgb, var(--stage) 42%, var(--border));
+  box-shadow: 0 6px 16px rgba(60,45,30,.10);
+  transform: translateY(-1px);
+}
 .task-card.selected { border-color: var(--stage); box-shadow: 0 0 0 2px color-mix(in srgb, var(--stage) 18%, transparent); }
-.task-card.dragging { opacity: .55; }
+.task-card.dragging { opacity: .55; transform: none; }
 .task-card.is-live { border-color: rgba(47,111,237,.35); }
 .task-card.has-unread {
   border-color: color-mix(in srgb, #c9372c 38%, var(--border));
   box-shadow: 0 0 0 1px rgba(201, 55, 44, 0.16);
 }
+
+/* Trello-style unread counter, pinned beside the title. */
 .card-updates {
   display: inline-flex;
   align-items: center;
-  align-self: flex-start;
-  gap: 5px;
-  max-width: 100%;
-  padding: 3px 8px;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 7px;
   border-radius: 99px;
-  background: #fde8ea;
-  color: #c9372c;
+  background: #c9372c;
+  color: #fff;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1;
   white-space: nowrap;
 }
-.card-updates svg { width: 12px; height: 12px; flex-shrink: 0; }
+.card-updates svg { width: 11px; height: 11px; flex-shrink: 0; }
+.task-card.has-unread .card-updates { animation: unread-pop 2.4s ease-in-out infinite; }
+@keyframes unread-pop {
+  0%, 88%, 100% { box-shadow: 0 0 0 0 rgba(201,55,44,0); }
+  94% { box-shadow: 0 0 0 4px rgba(201,55,44,.18); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-card.has-unread .card-updates { animation: none; }
+  .task-card:hover { transform: none; }
+}
 
-.card-top { min-width: 0; }
+.card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
 .card-top strong {
-  display: block;
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
-  word-break: break-word;
+}
+.card-people {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 .company {
   color: var(--blue);
@@ -206,6 +252,7 @@
   gap: 5px;
   min-width: 0;
 }
+.card-tags:empty { display: none; }
 .card-bottom {
   display: flex;
   align-items: center;
@@ -214,21 +261,45 @@
   margin-top: 2px;
 }
 .card-bottom img { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; }
+.avatar-initials {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1;
+  user-select: none;
+}
 .card-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 6px 8px;
   margin-left: auto;
   min-width: 0;
   color: var(--muted);
   font-size: 11px;
 }
-.card-meta > span { display: inline-flex; align-items: center; gap: 3px; }
+.card-meta > span { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .card-meta svg { width: 13px; height: 13px; flex-shrink: 0; }
+.card-touched {
+  font-size: 10.5px;
+  color: var(--faint);
+  letter-spacing: .01em;
+}
 
-.priority-flag { position:absolute; top:0; left:12px; width:36px; height:3px; border-radius:0 0 2px 2px; background:var(--red); }
+.priority-flag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  border-radius: 11px 0 0 11px;
+  background: var(--red);
+}
 .priority-flag.priority-medium { background: var(--bronze); }
 .priority-flag.priority-low { background: var(--blue); }
 

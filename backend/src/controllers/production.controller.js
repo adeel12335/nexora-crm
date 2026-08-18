@@ -216,6 +216,7 @@ function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
     description,
     liveUrl: row.live_url || '',
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
     dueDate: row.due_date,
     comments: Number(row.comments_count || 0),
     attachments: Number(row.attachments_count || 0),

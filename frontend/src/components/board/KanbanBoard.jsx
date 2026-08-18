@@ -69,6 +69,19 @@ function hasLiveLink(card) {
   return Boolean(String(card?.liveUrl || '').trim());
 }
 
+/** Most recent sign of life on a card: an edit, a comment, or its creation. */
+function cardActivityAt(card) {
+  let latest = 0;
+  const consider = (value) => {
+    const t = value ? new Date(value).getTime() : 0;
+    if (t && !Number.isNaN(t) && t > latest) latest = t;
+  };
+  consider(card?.updatedAt);
+  consider(card?.createdAt);
+  for (const comment of card?.commentList || []) consider(comment?.createdAt);
+  return latest;
+}
+
 export default function KanbanBoard() {
   const { token, user } = useAuth();
   const { showToast } = useToast();
@@ -366,19 +379,40 @@ export default function KanbanBoard() {
     }));
   }
 
-  function visibleCards(stageId) {
+  function matchesFilters(card) {
     const q = query.toLowerCase().trim();
-    return cards.filter((card) => {
-      if (card.stage !== stageId) return false;
-      if (q && !`${card.title} ${card.client}`.toLowerCase().includes(q)) return false;
-      if (filter === 'priority') return isHighPriority(card.priority) || card.priority === 'medium';
-      if (filter === 'revision') return card.stage === 'draft_revisions' || card.type === 'revision';
-      if (filter === 'overdue') return getDeadlineInfo(card.dueDate).tone === 'overdue';
-      if (filter === 'live') return isLiveLikeStage(card.stage);
-      if (filter === 'feedback') return card.feedback?.status && card.feedback.status !== 'none';
-      return true;
-    });
+    if (q && !`${card.title} ${card.client}`.toLowerCase().includes(q)) return false;
+    if (filter === 'priority') return isHighPriority(card.priority) || card.priority === 'medium';
+    if (filter === 'revision') return card.stage === 'draft_revisions' || card.type === 'revision';
+    if (filter === 'overdue') return getDeadlineInfo(card.dueDate).tone === 'overdue';
+    if (filter === 'live') return isLiveLikeStage(card.stage);
+    if (filter === 'feedback') return card.feedback?.status && card.feedback.status !== 'none';
+    return true;
   }
+
+  /**
+   * Cards are ordered newest-activity-first: anything commented on, edited or
+   * just created floats to the top of its column, with unread cards above all.
+   */
+  const cardsByStage = useMemo(() => {
+    const grouped = new Map(productionStages.map((s) => [s.id, []]));
+    for (const card of cards) {
+      if (!grouped.has(card.stage) || !matchesFilters(card)) continue;
+      grouped.get(card.stage).push(card);
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => {
+        const unreadA = Number(unreadByCard[String(a.id)] || 0) > 0 ? 1 : 0;
+        const unreadB = Number(unreadByCard[String(b.id)] || 0) > 0 ? 1 : 0;
+        if (unreadA !== unreadB) return unreadB - unreadA;
+        const activityDiff = cardActivityAt(b) - cardActivityAt(a);
+        if (activityDiff) return activityDiff;
+        return Number(b.id) - Number(a.id);
+      });
+    }
+    return grouped;
+    // matchesFilters closes over query/filter, both listed below.
+  }, [cards, query, filter, unreadByCard]);
 
   function mergeCommentLists(localList = [], serverList = []) {
     return mergeById(localList, serverList, (local, server) => ({
@@ -769,7 +803,7 @@ export default function KanbanBoard() {
           <KanbanColumn
             key={stage.id}
             stage={stage}
-            cards={visibleCards(stage.id)}
+            cards={cardsByStage.get(stage.id) || []}
             selectedId={selectedId}
             draggingId={draggingId}
             onSelect={handleSelect}
@@ -778,6 +812,7 @@ export default function KanbanBoard() {
             onDrop={handleDrop}
             onAddCard={canCreateCards ? handleAddCard : null}
             unreadByCard={unreadByCard}
+            activityAt={cardActivityAt}
             mobileActive
           />
         ))}
