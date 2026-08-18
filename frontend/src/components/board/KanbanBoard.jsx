@@ -12,7 +12,17 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../api/client.js';
 
-let nextFileId = 5000;
+let localSeq = 0;
+
+/**
+ * Id for an optimistic row. Must not repeat across page loads: a counter that
+ * restarts at a fixed number hands two different comments the same id, and then
+ * edit / delete hits both of them.
+ */
+function localId(prefix) {
+  localSeq += 1;
+  return `${prefix}-${Date.now().toString(36)}-${localSeq}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function toAssignee(user) {
   return {
@@ -89,11 +99,23 @@ export default function KanbanBoard() {
     cardsRef.current = cards;
   }, [cards]);
 
+  /**
+   * Single writer for board state. cardsRef is updated synchronously because
+   * queued saves read it in a microtask, long before React flushes the effect
+   * above — reading stale cards there dropped the comment being saved.
+   */
+  const commitCards = useCallback((updater) => {
+    const next = typeof updater === 'function' ? updater(cardsRef.current) : updater;
+    cardsRef.current = next;
+    setCards(next);
+    return next;
+  }, []);
+
   const loadCards = useCallback(async () => {
     if (!token) return;
     const data = await api.listProductionCards(token);
-    setCards((data.cards || []).map(hydrateCard));
-  }, [token]);
+    commitCards((data.cards || []).map(hydrateCard));
+  }, [token, commitCards]);
 
   useEffect(() => {
     if (!token) return;
@@ -113,7 +135,7 @@ export default function KanbanBoard() {
         const [cardsData, meta] = await Promise.all([cardsPromise, metaPromise]);
         if (cancelled) return;
 
-        setCards((cardsData.cards || []).map(hydrateCard));
+        commitCards((cardsData.cards || []).map(hydrateCard));
 
         if (isAdmin) {
           const [usersData, clientsData] = meta;
@@ -136,7 +158,7 @@ export default function KanbanBoard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [token, user, isAdmin, showToast]);
+  }, [token, user, isAdmin, showToast, commitCards]);
 
   const selectedCard = cards.find((c) => c.id === selectedId) || null;
   const selectedStage = productionStages.find((s) => s.id === selectedCard?.stage);
@@ -166,13 +188,13 @@ export default function KanbanBoard() {
 
   function replaceCard(updated) {
     const next = hydrateCard(updated);
-    setCards((prev) => prev.map((item) => (item.id === next.id ? next : item)));
+    commitCards((prev) => prev.map((item) => (item.id === next.id ? next : item)));
     return next;
   }
 
   function patchCardLocal(cardId, patch) {
     let nextCard = null;
-    setCards((prev) => prev.map((item) => {
+    commitCards((prev) => prev.map((item) => {
       if (item.id !== cardId) return item;
       nextCard = hydrateCard({
         ...item,
@@ -340,89 +362,70 @@ export default function KanbanBoard() {
     return hydrateCard(data.card);
   }
 
-  /** Prefer local file/data URLs, fill missing ones from server copy. */
-  function mergeDeliveryLists(localList = [], serverList = []) {
-    const serverById = new Map(serverList.map((d) => [String(d.id), d]));
-    const seen = new Set();
+  /**
+   * The server copy is authoritative — it is the state that was just saved.
+   * A local row the server does not know about survives only while it is still
+   * `_pending` (queued, not sent yet); otherwise it was deleted server-side and
+   * keeping it would resurrect deleted comments and revert edits.
+   */
+  function mergeById(localList = [], serverList = [], merge) {
+    const serverById = new Map(serverList.map((item) => [String(item.id), item]));
+    const kept = new Set();
     const merged = [];
     for (const local of localList) {
       const id = String(local.id);
-      seen.add(id);
       const server = serverById.get(id);
-      if (!server) {
+      if (server) {
+        kept.add(id);
+        merged.push(merge(local, server));
+      } else if (local._pending) {
         merged.push(local);
-        continue;
       }
-      const localFiles = Array.isArray(local.files) && local.files.length
-        ? local.files
-        : (local.fileUrl || local.name
-          ? [{ id: local.id, name: local.name, size: local.size, type: local.type, fileUrl: local.fileUrl }]
-          : []);
-      const serverFiles = Array.isArray(server.files) && server.files.length
-        ? server.files
-        : (server.fileUrl || server.name
-          ? [{ id: server.id, name: server.name, size: server.size, type: server.type, fileUrl: server.fileUrl }]
-          : []);
-      const serverFileById = new Map(serverFiles.map((f) => [String(f.id || f.name), f]));
-      const files = localFiles.map((f) => {
-        const key = String(f.id || f.name);
-        const sf = serverFileById.get(key);
-        return {
-          ...sf,
-          ...f,
-          fileUrl: f.fileUrl || sf?.fileUrl || null,
-        };
-      });
-      for (const sf of serverFiles) {
-        const key = String(sf.id || sf.name);
-        if (files.some((f) => String(f.id || f.name) === key)) continue;
-        files.push(sf);
-      }
-      const primary = files[0] || null;
-      merged.push({
-        ...server,
-        ...local,
-        files,
-        name: primary?.name || local.name || server.name || null,
-        size: primary?.size ?? local.size ?? server.size ?? null,
-        type: primary?.type || local.type || server.type || null,
-        fileUrl: primary?.fileUrl || local.fileUrl || server.fileUrl || null,
-        url: local.url || server.url || null,
-        feedback: local.feedback || server.feedback,
-      });
     }
     for (const server of serverList) {
-      const id = String(server.id);
-      if (seen.has(id)) continue;
+      if (kept.has(String(server.id))) continue;
       merged.push(server);
     }
     return merged;
   }
 
-  function mergeFileLists(localList = [], serverList = []) {
-    const serverById = new Map(serverList.map((f) => [String(f.id), f]));
-    const seen = new Set();
-    const merged = [];
-    for (const local of localList) {
-      const id = String(local.id);
-      seen.add(id);
-      const server = serverById.get(id);
-      if (!server) {
-        merged.push(local);
-        continue;
-      }
-      merged.push({
-        ...server,
-        ...local,
-        url: local.url || server.url || null,
+  function deliveryFilesOf(item) {
+    if (Array.isArray(item?.files) && item.files.length) return item.files;
+    if (item?.fileUrl || item?.name) {
+      return [{ id: item.id, name: item.name, size: item.size, type: item.type, fileUrl: item.fileUrl }];
+    }
+    return [];
+  }
+
+  function mergeDeliveryLists(localList = [], serverList = []) {
+    return mergeById(localList, serverList, (local, server) => {
+      const localFileById = new Map(deliveryFilesOf(local).map((f) => [String(f.id || f.name), f]));
+      const files = deliveryFilesOf(server).map((f) => {
+        const localFile = localFileById.get(String(f.id || f.name));
+        return { ...f, fileUrl: f.fileUrl || localFile?.fileUrl || null };
       });
-    }
-    for (const server of serverList) {
-      const id = String(server.id);
-      if (seen.has(id)) continue;
-      merged.push(server);
-    }
-    return merged;
+      const primary = files[0] || null;
+      return {
+        ...local,
+        ...server,
+        files,
+        name: primary?.name || server.name || local.name || null,
+        size: primary?.size ?? server.size ?? local.size ?? null,
+        type: primary?.type || server.type || local.type || null,
+        fileUrl: primary?.fileUrl || server.fileUrl || local.fileUrl || null,
+        url: server.url || local.url || null,
+        _pending: local._pending,
+      };
+    });
+  }
+
+  function mergeFileLists(localList = [], serverList = []) {
+    return mergeById(localList, serverList, (local, server) => ({
+      ...local,
+      ...server,
+      url: server.url || local.url || null,
+      _pending: local._pending,
+    }));
   }
 
   function visibleCards(stageId) {
@@ -440,20 +443,12 @@ export default function KanbanBoard() {
   }
 
   function mergeCommentLists(localList = [], serverList = []) {
-    const serverById = new Map(serverList.map((c) => [String(c.id), c]));
-    const seen = new Set();
-    const merged = [];
-    for (const local of localList) {
-      const id = String(local.id);
-      seen.add(id);
-      merged.push(serverById.get(id) ? { ...serverById.get(id), ...local } : local);
-    }
-    for (const server of serverList) {
-      const id = String(server.id);
-      if (seen.has(id)) continue;
-      merged.push(server);
-    }
-    return merged;
+    return mergeById(localList, serverList, (local, server) => ({
+      ...local,
+      ...server,
+      files: (server.files?.length ? server.files : local.files) || [],
+      _pending: local._pending,
+    }));
   }
 
   function handleSelect(id) {
@@ -565,9 +560,10 @@ export default function KanbanBoard() {
         deliveryList: [],
         commentList: fileList.length
           ? [{
-              id: Date.now() + Math.random(),
+              id: localId('comment'),
               kind: 'comment',
               author: user?.name || 'You',
+              authorId: user?.id ?? null,
               avatar: '/assets/avatar-jane.svg',
               text: fileList.length === 1
                 ? `Attached ${fileList[0].name}`
@@ -579,7 +575,7 @@ export default function KanbanBoard() {
           : [],
       });
       const card = hydrateCard(data.card);
-      setCards((prev) => [...prev, card]);
+      commitCards((prev) => [...prev, card]);
       setSelectedId(card.id);
       setDrawerOpen(true);
       setModalOpen(false);
@@ -599,13 +595,16 @@ export default function KanbanBoard() {
   }
 
   async function handleUpdateCard(cardId, patch) {
+    const prevCard = cardsRef.current.find((c) => c.id === cardId);
+    const prevComments = prevCard?.commentList || [];
+    const commentsOnly = Object.keys(patch).length === 1 && 'commentList' in patch;
+    // Apply the edit / delete locally first: the save response is merged over
+    // local state, so leaving the old copy in place brings it straight back.
+    if (commentsOnly) patchCardLocal(cardId, { commentList: patch.commentList || [] });
     try {
-      const prevCard = cardsRef.current.find((c) => c.id === cardId);
-      const prevComments = prevCard?.commentList || [];
       await persistCard(cardId, patch);
-      if (Object.keys(patch).length === 1 && 'commentList' in patch) {
-        const nextComments = patch.commentList || [];
-        if (nextComments.length < prevComments.length) {
+      if (commentsOnly) {
+        if ((patch.commentList || []).length < prevComments.length) {
           pruneCommentAddActivities(cardId);
           showToast('Comment deleted');
         } else {
@@ -617,6 +616,7 @@ export default function KanbanBoard() {
       showToast('Card updated');
       return true;
     } catch (err) {
+      if (commentsOnly && prevCard) patchCardLocal(cardId, { commentList: prevComments });
       showToast(err.message || 'Could not update card');
       return false;
     }
@@ -626,7 +626,7 @@ export default function KanbanBoard() {
     const card = cards.find((c) => c.id === cardId);
     try {
       await api.deleteProductionCard(token, cardId);
-      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      commitCards((prev) => prev.filter((c) => c.id !== cardId));
       setSelectedId(null);
       setDrawerOpen(false);
       showToast(card ? `Deleted "${card.title}"` : 'Card deleted');
@@ -652,9 +652,10 @@ export default function KanbanBoard() {
     }
 
     const entry = {
-      id: nextFileId++,
+      id: localId('comment'),
       kind: 'comment',
       author: user?.name || 'You',
+      authorId: user?.id ?? null,
       avatar: '/assets/avatar-jane.svg',
       text: String(text || '').trim(),
       files: fileEntries,
@@ -703,9 +704,10 @@ export default function KanbanBoard() {
       const uploaded = hosted.map((f) => ({ ...f, _pending: true }));
       const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
       const attachComment = {
-        id: Date.now() + Math.random(),
+        id: localId('comment'),
         kind: 'comment',
         author: user?.name || 'You',
+        authorId: user?.id ?? null,
         avatar: '/assets/avatar-jane.svg',
         text: uploaded.length === 1
           ? `Attached ${uploaded[0].name}`
@@ -803,7 +805,7 @@ export default function KanbanBoard() {
 
     const primary = fileEntries[0] || null;
     const entry = {
-      id: nextFileId++,
+      id: localId('delivery'),
       description,
       url: url || null,
       name: primary?.name || null,
@@ -1006,6 +1008,7 @@ export default function KanbanBoard() {
         activity={activity}
         comments={comments}
         onAddComment={handleAddComment}
+        currentUser={user}
         onUpdateCard={handleUpdateCard}
         onDeleteCard={canDeleteCards ? handleDeleteCard : null}
         canEditMeta={canEditCardMeta}

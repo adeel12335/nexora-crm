@@ -3,7 +3,6 @@ import {
   ensureUploadDirs,
   isAllowedUploadName,
   materializeFileAttachment,
-  publicBaseFromRequest,
   saveUploadBuffer,
   UPLOAD_ROOT,
 } from '../services/uploads.js';
@@ -39,7 +38,6 @@ export async function uploadProductionFiles(req, res) {
     return res.status(400).json({ error: 'No files uploaded — use form field "files"' });
   }
 
-  const publicBase = publicBaseFromRequest(req);
   const saved = [];
   let totalBytes = 0;
 
@@ -53,7 +51,6 @@ export async function uploadProductionFiles(req, res) {
         buffer: file.buffer,
         originalName: file.originalname,
         mimeType: file.mimetype,
-        publicBase,
       }),
     );
   }
@@ -73,16 +70,13 @@ function parseExtras(raw) {
   }
 }
 
-function materializeList(list, publicBase, urlKey = 'url') {
+function materializeList(list, urlKey = 'url') {
   if (!Array.isArray(list)) return { list: [], converted: 0 };
   let converted = 0;
   const next = list.map((item) => {
     const url = String(item?.[urlKey] || item?.url || item?.fileUrl || '');
     if (!url.startsWith('data:')) return item;
-    const materialized = materializeFileAttachment(
-      { ...item, url: item.url || item.fileUrl },
-      { publicBase },
-    );
+    const materialized = materializeFileAttachment({ ...item, url: item.url || item.fileUrl });
     converted += 1;
     if (urlKey === 'fileUrl') {
       return {
@@ -101,15 +95,15 @@ function materializeList(list, publicBase, urlKey = 'url') {
  * Walk comment / file / delivery lists and write any data: URLs to disk.
  * Returns { extras, converted }.
  */
-export function materializeExtrasDataUrls(extras, publicBase) {
+export function materializeExtrasDataUrls(extras) {
   const src = extras && typeof extras === 'object' ? extras : {};
   let converted = 0;
 
-  const files = materializeList(src.fileList, publicBase, 'url');
+  const files = materializeList(src.fileList, 'url');
   converted += files.converted;
 
   const comments = Array.isArray(src.commentList) ? src.commentList.map((c) => {
-    const nested = materializeList(c?.files, publicBase, 'url');
+    const nested = materializeList(c?.files, 'url');
     converted += nested.converted;
     return { ...c, files: nested.list };
   }) : [];
@@ -118,10 +112,9 @@ export function materializeExtrasDataUrls(extras, publicBase) {
     let item = { ...d };
     const topUrl = String(d?.fileUrl || d?.url || '');
     if (topUrl.startsWith('data:')) {
-      const mat = materializeFileAttachment(
-        { name: d.name || 'delivery.bin', size: d.size, type: d.type, url: topUrl, id: d.id },
-        { publicBase },
-      );
+      const mat = materializeFileAttachment({
+        name: d.name || 'delivery.bin', size: d.size, type: d.type, url: topUrl, id: d.id,
+      });
       converted += 1;
       item = {
         ...item,
@@ -131,7 +124,7 @@ export function materializeExtrasDataUrls(extras, publicBase) {
         type: mat.type || item.type,
       };
     }
-    const nested = materializeList(item.files, publicBase, 'fileUrl');
+    const nested = materializeList(item.files, 'fileUrl');
     converted += nested.converted;
     item.files = nested.list.map((f) => ({
       id: f.id,
@@ -164,7 +157,7 @@ export function materializeExtrasDataUrls(extras, publicBase) {
  * One-shot: convert every production card's base64 attachments to disk files.
  * Safe to re-run (skips http URLs).
  */
-export async function migrateAllBase64Uploads({ publicBase = '' } = {}) {
+export async function migrateAllBase64Uploads() {
   ensureUploadDirs();
   const [rows] = await pool.query('SELECT id, extras_json FROM production_cards');
   let cardsTouched = 0;
@@ -175,7 +168,7 @@ export async function migrateAllBase64Uploads({ publicBase = '' } = {}) {
     const raw = JSON.stringify(extras);
     if (!raw.includes('data:')) continue;
 
-    const { extras: next, converted } = materializeExtrasDataUrls(extras, publicBase);
+    const { extras: next, converted } = materializeExtrasDataUrls(extras);
     if (!converted) continue;
 
     await pool.query(

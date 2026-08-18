@@ -12,7 +12,6 @@ import {
   uploadProductionFilesMiddleware,
   migrateAllBase64Uploads,
 } from '../controllers/uploads.controller.js';
-import { publicBaseFromRequest } from '../services/uploads.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
@@ -78,9 +77,7 @@ productionRoutes.post(
   '/uploads/migrate-base64',
   requireRole('admin'),
   asyncHandler(async (req, res) => {
-    const result = await migrateAllBase64Uploads({
-      publicBase: publicBaseFromRequest(req),
-    });
+    const result = await migrateAllBase64Uploads();
     res.json({ ok: true, ...result });
   }),
 );

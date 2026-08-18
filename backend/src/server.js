@@ -11,8 +11,7 @@ app.listen(port, () => {
 
   // After Hostinger deploy: convert leftover base64 blobs in MySQL → /uploads
   if (String(process.env.MIGRATE_BASE64_ON_BOOT || 'true').toLowerCase() !== 'false') {
-    const publicBase = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-    migrateAllBase64Uploads({ publicBase })
+    migrateAllBase64Uploads()
       .then((r) => {
         if (r.filesConverted) {
           console.log(`[uploads] migrated ${r.filesConverted} base64 file(s) across ${r.cardsTouched} card(s)`);

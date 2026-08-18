@@ -1,7 +1,6 @@
 import { pool } from '../config/db.js';
 import { notifyProductionCardChange, notifyProductionCardCreated } from '../services/notifications.js';
 import { materializeExtrasDataUrls } from './uploads.controller.js';
-import { publicBaseFromRequest } from '../services/uploads.js';
 
 const STAGES = new Set([
   'new_project_create_draft',
@@ -179,7 +178,7 @@ function mapDeliveryList(raw, { light = false } = {}) {
   });
 }
 
-function toCard(row, { light = false, role = null } = {}) {
+function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
   const extras = parseExtras(row.extras_json);
   const assigneeId = row.assignee_id;
   const rawFiles = extras.fileList || [];
@@ -220,10 +219,7 @@ function toCard(row, { light = false, role = null } = {}) {
     dueDate: row.due_date,
     comments: Number(row.comments_count || 0),
     attachments: Number(row.attachments_count || 0),
-    commentList: mapCommentList(
-      light ? (extras.commentList || []).slice(-20) : (extras.commentList || []),
-      { light },
-    ),
+    commentList: mapCommentList(newestComments(extras.commentList, commentLimit), { light }),
     fileList,
     deliveryList: mapDeliveryList(extras.deliveryList, { light }),
     feedback: extras.feedback || {
@@ -321,6 +317,11 @@ function fileExtOf(name) {
   return parts.pop() || '';
 }
 
+/** Our own uploads are stored host-less (`/api/uploads/...`) — still real files. */
+function isStoredUploadPath(url) {
+  return /^\/(?:api\/)?uploads\//i.test(String(url || ''));
+}
+
 /** True when this "attachment" is really a bookmark/link (Trello import noise). */
 function isLinkOnlyAttachment(f) {
   const name = String(f?.name || '').trim();
@@ -354,7 +355,7 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
 
   let size = Number(f?.size || 0);
   // Trello-imported remote files often have no size — keep them if URL looks real.
-  if (!(size > 0) && url && (/^https?:\/\//i.test(url) || url.startsWith('data:'))) {
+  if (!(size > 0) && url && (/^https?:\/\//i.test(url) || url.startsWith('data:') || isStoredUploadPath(url))) {
     size = 1;
   }
   if (!(size > 0) || size > 5 * 1024 * 1024) {
@@ -369,7 +370,7 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
     err.status = 400;
     throw err;
   }
-  if (url && !url.startsWith('data:') && !/^https?:\/\//i.test(url)) {
+  if (url && !url.startsWith('data:') && !/^https?:\/\//i.test(url) && !isStoredUploadPath(url)) {
     if (!strict) return { skip: true, totalBytes: Number(totalBytes || 0) };
     const err = new Error(`${label} "${name}" has an invalid URL`);
     err.status = 400;
@@ -377,7 +378,7 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
   }
   return {
     file: {
-      id: f.id ?? Date.now(),
+      id: f.id ?? freshId('file'),
       name,
       size,
       type: String(f.type || 'application/octet-stream'),
@@ -386,6 +387,17 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
     },
     totalBytes: nextTotal,
   };
+}
+
+/** Newest N comments — the stored list is newest-first, imports may not be. */
+function newestComments(list, limit) {
+  const all = Array.isArray(list) ? list : [];
+  if (!limit || all.length <= limit) return all;
+  const stamp = (c) => {
+    const t = new Date(c?.createdAt || 0).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+  return [...all].sort((a, b) => stamp(b) - stamp(a)).slice(0, limit);
 }
 
 function mapCommentList(raw, { light = false } = {}) {
@@ -410,6 +422,14 @@ function mapCommentList(raw, { light = false } = {}) {
   });
 }
 
+let idSeq = 0;
+
+/** Unique id for rows that arrive without one (Date.now() alone collides). */
+function freshId(prefix) {
+  idSeq = (idSeq + 1) % 100000;
+  return `${prefix}-${Date.now().toString(36)}-${idSeq}`;
+}
+
 function sanitizeCommentList(commentList) {
   const list = Array.isArray(commentList) ? commentList.slice(0, 200) : [];
   const out = [];
@@ -429,16 +449,84 @@ function sanitizeCommentList(commentList) {
       files.push(result.file);
     }
     if (!text && !files.length) continue;
+    const authorId = Number(raw?.authorId);
     out.push({
-      id: raw?.id ?? Date.now(),
+      id: raw?.id ?? freshId('comment'),
       kind: 'comment',
       author: String(raw?.author || 'Someone').slice(0, 80),
+      // Who may later edit / delete this comment.
+      authorId: Number.isInteger(authorId) && authorId > 0 ? authorId : null,
       avatar: raw?.avatar || null,
       text,
       time: raw?.time || 'now',
       createdAt: raw?.createdAt || new Date().toISOString(),
       files,
     });
+  }
+  return out;
+}
+
+/** Legacy comments predate authorId — fall back to the stored display name. */
+function ownsComment(comment, user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const ownerId = Number(comment?.authorId);
+  if (Number.isInteger(ownerId) && ownerId > 0) return ownerId === Number(user.id);
+  const author = String(comment?.author || '').trim().toLowerCase();
+  return Boolean(author) && author === String(user.name || '').trim().toLowerCase();
+}
+
+/** Comments created alongside a brand new card belong to whoever created it. */
+function stampCommentAuthors(commentList, user) {
+  if (!Array.isArray(commentList)) return commentList;
+  return commentList.map((c) => ({
+    ...c,
+    authorId: Number(c?.authorId) || Number(user?.id) || null,
+    author: c?.author || user?.name || 'Someone',
+  }));
+}
+
+/**
+ * A comment may only be edited or deleted by whoever posted it (admins may do
+ * both). Everything else is restored from what is already stored, which also
+ * stops a stale client list from wiping comments added in the meantime.
+ */
+function enforceCommentPermissions(incoming, previous, user) {
+  const prevList = Array.isArray(previous) ? previous : [];
+  const list = Array.isArray(incoming) ? incoming : [];
+  const prevById = new Map(prevList.map((c) => [String(c.id), c]));
+  const kept = new Set();
+  const out = [];
+
+  for (const raw of list) {
+    const prev = prevById.get(String(raw?.id));
+    if (!prev) {
+      const claimedAuthor = Number(raw?.authorId);
+      // A "new" comment carrying somebody else's author id is a stale copy of
+      // one they already deleted — never resurrect it under their name.
+      const isGhost = Number.isInteger(claimedAuthor)
+        && claimedAuthor > 0
+        && claimedAuthor !== Number(user?.id)
+        && user?.role !== 'admin';
+      if (isGhost) continue;
+      out.push({
+        ...raw,
+        authorId: Number(user?.id) || claimedAuthor || null,
+        author: raw?.author || user?.name || 'Someone',
+      });
+      continue;
+    }
+    kept.add(String(prev.id));
+    out.push(ownsComment(prev, user)
+      ? { ...raw, author: prev.author, authorId: prev.authorId ?? null }
+      : prev);
+  }
+
+  // Comments the payload dropped: keep the ones this user may not delete.
+  for (const prev of prevList) {
+    if (kept.has(String(prev.id))) continue;
+    if (ownsComment(prev, user)) continue;
+    out.push(prev);
   }
   return out;
 }
@@ -598,7 +686,7 @@ function sanitizeDeliveryList(deliveryList) {
     }
 
     items.push({
-      id: raw.id ?? Date.now(),
+      id: raw.id ?? freshId('delivery'),
       description,
       url: linkUrl,
       name: primary?.name || null,
@@ -755,7 +843,8 @@ export async function listCards(req, res) {
     params,
   );
   const role = req.user?.role || null;
-  res.json({ cards: rows.map((row) => toCard(row, { light: true, role })) });
+  // Board cards only need recent comments; the drawer refetches the full card.
+  res.json({ cards: rows.map((row) => toCard(row, { light: true, role, commentLimit: 20 })) });
 }
 
 /** GET /api/production/cards/:id — full card including file data URLs */
@@ -857,13 +946,12 @@ export async function createCard(req, res) {
     url = null;
   }
 
-  const publicBase = publicBaseFromRequest(req);
   const { extras: matured } = materializeExtrasDataUrls({
-    commentList,
+    commentList: stampCommentAuthors(commentList, req.user),
     fileList,
     feedback,
     deliveryList,
-  }, publicBase);
+  });
   const extras = sanitizeExtras(matured);
 
   const [result] = await pool.query(
@@ -979,13 +1067,15 @@ export async function updateCard(req, res) {
   const incomingFiles = body.fileList !== undefined
     ? mergeIncomingFileList(body.fileList, prevExtras.fileList)
     : prevExtras.fileList;
-  const publicBase = publicBaseFromRequest(req);
+  const nextCommentList = body.commentList !== undefined
+    ? enforceCommentPermissions(body.commentList, prevExtras.commentList, req.user)
+    : prevExtras.commentList;
   const { extras: matured } = materializeExtrasDataUrls({
-    commentList: body.commentList !== undefined ? body.commentList : prevExtras.commentList,
+    commentList: nextCommentList,
     fileList: incomingFiles,
     feedback: body.feedback !== undefined ? body.feedback : prevExtras.feedback,
     deliveryList: nextDeliveryList,
-  }, publicBase);
+  });
   const extras = sanitizeExtras({
     ...matured,
     strictFiles: false,
@@ -1024,8 +1114,10 @@ export async function updateCard(req, res) {
   }
 
   const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
-  // Light payload: full base64 attachments can be ~2MB and break browser/proxy timeouts
-  // after a successful save (comments appear briefly then vanish on rollback).
+  // Light payload: legacy base64 attachments can be ~2MB and break browser/proxy
+  // timeouts after a successful save (comments appear briefly then vanish on
+  // rollback). Comments are never truncated here — the client merges this
+  // response over its own state, so a short list would drop older comments.
   const card = toCard(row, { light: true, role: req.user?.role || null });
 
   const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
