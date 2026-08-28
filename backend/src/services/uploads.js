@@ -5,10 +5,83 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Absolute folder for uploaded files (Hostinger-safe, next to backend root). */
-export const UPLOAD_ROOT = process.env.UPLOAD_DIR
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : path.resolve(__dirname, '../../uploads');
+function uniqueResolved(dirs) {
+  const seen = new Set();
+  const out = [];
+  for (const dir of dirs) {
+    if (!dir) continue;
+    const abs = path.resolve(dir);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    out.push(abs);
+  }
+  return out;
+}
+
+/**
+ * Git deploys wipe untracked `backend/uploads`. In production, keep bytes
+ * under $HOME/nexora-uploads so Hostinger pull/restart does not delete them.
+ */
+function defaultWriteRoot() {
+  if (process.env.UPLOAD_DIR) return path.resolve(process.env.UPLOAD_DIR);
+  if (process.env.NODE_ENV === 'production') {
+    const home = process.env.HOME || process.env.USERPROFILE;
+    if (home) return path.join(home, 'nexora-uploads');
+  }
+  return path.resolve(__dirname, '../../uploads');
+}
+
+/** Absolute folder for uploaded files (Hostinger-safe). */
+export const UPLOAD_ROOT = defaultWriteRoot();
+
+export function uploadLookupRoots() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  return uniqueResolved([
+    process.env.UPLOAD_DIR,
+    UPLOAD_ROOT,
+    home ? path.join(home, 'nexora-uploads') : null,
+    path.resolve(__dirname, '../../uploads'),
+  ]);
+}
+
+/**
+ * Find a stored upload on disk. Tries the write root, legacy repo folder,
+ * and a timestamp-prefix match when the sanitized filename drifted.
+ */
+export function resolveUploadOnDisk(rel) {
+  const safe = String(rel || '').replace(/^\/+/, '').replace(/\\/g, '/');
+  if (!safe || safe.includes('..')) return null;
+  const posixRel = safe.split('/').filter(Boolean).join('/');
+
+  for (const root of uploadLookupRoots()) {
+    const abs = path.resolve(root, ...posixRel.split('/'));
+    const rootAbs = path.resolve(root);
+    if (!abs.startsWith(rootAbs + path.sep) && abs !== rootAbs) continue;
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+    } catch {
+      // keep looking
+    }
+  }
+
+  const base = path.posix.basename(posixRel);
+  const prefix = base.match(/^(\d{10,}-[a-f0-9]{8,})/i);
+  if (!prefix) return null;
+  const dirRel = path.posix.dirname(posixRel);
+  for (const root of uploadLookupRoots()) {
+    const dir = dirRel === '.' ? root : path.resolve(root, ...dirRel.split('/'));
+    try {
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+      const hit = fs.readdirSync(dir).find((name) => name.startsWith(prefix[1]));
+      if (!hit) continue;
+      const abs = path.join(dir, hit);
+      if (fs.statSync(abs).isFile()) return abs;
+    } catch {
+      // keep looking
+    }
+  }
+  return null;
+}
 
 export const PRODUCTION_DIR = path.join(UPLOAD_ROOT, 'production');
 export const UPLOAD_TMP_DIR = path.join(UPLOAD_ROOT, 'tmp');

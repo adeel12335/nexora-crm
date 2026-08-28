@@ -13,8 +13,7 @@ import { settingsRoutes } from './routes/settings.routes.js';
 import { productionRoutes } from './routes/production.routes.js';
 import { followupsRoutes } from './routes/followups.routes.js';
 import path from 'path';
-import fs from 'fs';
-import { ensureUploadDirs, isHashedUploadPath, UPLOAD_ROOT } from './services/uploads.js';
+import { ensureUploadDirs, isHashedUploadPath, resolveUploadOnDisk, UPLOAD_ROOT, uploadLookupRoots } from './services/uploads.js';
 
 export const app = express();
 
@@ -61,16 +60,18 @@ app.use('/api/uploads', (req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') return next();
   const rel = decodeURIComponent(String(req.path || '')).replace(/^\/+/, '');
   if (!rel || rel.includes('..')) return res.status(400).json({ error: 'Invalid path' });
-  const root = path.resolve(UPLOAD_ROOT);
-  const abs = path.resolve(root, rel);
-  if (!abs.startsWith(root + path.sep) && abs !== root) {
-    return res.status(400).json({ error: 'Invalid path' });
+  const abs = resolveUploadOnDisk(rel);
+  if (!abs) {
+    return res.status(404).json({
+      error: 'File not found on the server. It was likely lost on deploy — please re-upload.',
+    });
   }
-  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return next();
-  const hashed = isHashedUploadPath(rel);
+  const hashed = isHashedUploadPath(rel) || isHashedUploadPath(abs);
+  const downloadName = path.basename(abs).replace(/[\r\n"]/g, '');
   return res.sendFile(abs, {
     headers: {
       'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `inline; filename="${downloadName}"`,
       'Cache-Control': hashed
         ? 'public, max-age=31536000, immutable'
         : 'public, max-age=604800',
@@ -85,17 +86,19 @@ function uploadCacheHeaders(res, filePath) {
     hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=604800',
   );
 }
-app.use('/api/uploads', express.static(UPLOAD_ROOT, {
-  fallthrough: true,
-  maxAge: '7d',
-  setHeaders: uploadCacheHeaders,
-}));
-app.use('/uploads', express.static(UPLOAD_ROOT, {
-  fallthrough: true,
-  maxAge: '7d',
-  setHeaders: uploadCacheHeaders,
-}));
-console.log(`[uploads] serving from ${UPLOAD_ROOT}`);
+for (const root of uploadLookupRoots()) {
+  app.use('/api/uploads', express.static(root, {
+    fallthrough: true,
+    maxAge: '7d',
+    setHeaders: uploadCacheHeaders,
+  }));
+  app.use('/uploads', express.static(root, {
+    fallthrough: true,
+    maxAge: '7d',
+    setHeaders: uploadCacheHeaders,
+  }));
+}
+console.log(`[uploads] writing to ${UPLOAD_ROOT}; lookup ${uploadLookupRoots().join(' | ')}`);
 
 /** Load-balancer / uptime probe (no auth). */
 app.get('/health', healthCheck);

@@ -15,7 +15,7 @@ import {
   MAX_FILES_PER_COMMENT,
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
-import { resolveMediaUrl } from '../../api/client.js';
+import { openUploadedFile, resolveMediaUrl } from '../../api/client.js';
 import Avatar from './Avatar.jsx';
 
 const DESC_COLLAPSE_AT = 280;
@@ -299,6 +299,15 @@ export default function CardDrawer({
 
   function showErrors(title, errors, tone = 'error') {
     setAlert({ title, errors, tone });
+  }
+
+  async function handleOpenFile(event, file) {
+    event.preventDefault();
+    try {
+      await openUploadedFile(file?.url || file?.fileUrl, file?.name);
+    } catch (err) {
+      showErrors('File unavailable', [err.message || 'Could not open this file']);
+    }
   }
 
   function updateEdit(field, value) {
@@ -806,6 +815,7 @@ export default function CardDrawer({
                               target="_blank"
                               rel="noreferrer"
                               aria-label={`Open ${file.name}`}
+                              onClick={(e) => handleOpenFile(e, file)}
                             >
                               <Icon id="i-external" />
                             </a>
@@ -974,7 +984,13 @@ export default function CardDrawer({
                                   return (
                                     <li key={file.id || file.name} className={image ? 'is-image' : ''}>
                                       {image ? (
-                                        <a className="card-comment-thumb" href={href} target="_blank" rel="noreferrer">
+                                        <a
+                                          className="card-comment-thumb"
+                                          href={href}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          onClick={(e) => handleOpenFile(e, file)}
+                                        >
                                           <img src={href} alt={file.name || 'Attachment'} loading="lazy" />
                                         </a>
                                       ) : (
@@ -982,7 +998,12 @@ export default function CardDrawer({
                                       )}
                                       <span className="card-comment-file-meta">
                                         {href ? (
-                                          <a href={href} target="_blank" rel="noreferrer">
+                                          <a
+                                            href={href}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onClick={(e) => handleOpenFile(e, file)}
+                                          >
                                             {file.name || 'Open file'}
                                           </a>
                                         ) : (

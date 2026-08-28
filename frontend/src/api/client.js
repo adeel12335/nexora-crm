@@ -31,6 +31,39 @@ export function resolveMediaUrl(url) {
   return raw;
 }
 
+/**
+ * Open/download an uploaded file. Missing Hostinger files used to dump a JSON
+ * 404 tab — catch that and tell the user to re-upload.
+ */
+export async function openUploadedFile(url, filename) {
+  const href = resolveMediaUrl(url);
+  if (!href) throw new Error('File link is missing');
+  if (href.startsWith('blob:') || href.startsWith('data:')) {
+    window.open(href, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const res = await fetch(href);
+  if (!res.ok) {
+    throw new Error('This file is missing on the server. Please upload it again.');
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const image = String(blob.type || '').startsWith('image/');
+  if (image) {
+    window.open(objectUrl, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename || 'download';
+  a.rel = 'noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+}
+
 async function request(path, { method = 'GET', body, token } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
