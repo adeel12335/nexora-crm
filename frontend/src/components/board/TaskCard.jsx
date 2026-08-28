@@ -34,7 +34,7 @@ export default function TaskCard({
   const liveUrl = String(card.liveUrl || '').trim();
   const liveLike = isLiveLikeStage(card.stage);
   const name = displayClientName(card);
-  const hasMeta = comments > 0 || attachments > 0;
+  const hasMeta = unreadCount > 0 || comments > 0 || attachments > 0;
   const hasTags = Boolean(
     (showPriority && priority !== 'none')
     || (feedback && feedback !== 'none')
@@ -90,15 +90,6 @@ export default function TaskCard({
 
       <div className="card-top">
         <strong>{name}</strong>
-        {unreadCount > 0 ? (
-          <span
-            className="card-updates"
-            title={`${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'}`}
-          >
-            <Icon id="i-bell" />
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        ) : null}
       </div>
 
       {card.clientAgentName ? (
@@ -137,6 +128,15 @@ export default function TaskCard({
       {hasMeta ? (
         <div className="card-bottom">
           <div className="card-meta">
+            {unreadCount > 0 ? (
+              <span
+                className="card-updates"
+                title={`${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'}`}
+              >
+                <Icon id="i-bell" />
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
             {comments > 0 ? (
               <span title={`${comments} comments`}><Icon id="i-message" />{comments}</span>
             ) : null}

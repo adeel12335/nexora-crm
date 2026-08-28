@@ -682,7 +682,11 @@ export default function ClientsPage() {
           showToast(fileErrors[0] || 'Upload blocked');
           return;
         }
-        fileList = (await api.uploadProductionFiles(token, ok)).files || [];
+        fileList = ((await api.uploadProductionFiles(token, ok)).files || []).map((f) => ({
+          ...f,
+          uploadedById: user?.id ?? null,
+          uploadedByName: user?.name || null,
+        }));
       }
 
       const paymentNote = 'Pushed from CRM Clients';

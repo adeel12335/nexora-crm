@@ -49,6 +49,42 @@ function formatStamp(value, fallback = '') {
   });
 }
 
+function stampUploaderName(f) {
+  const name = String(f?.uploadedByName || f?.author || f?.uploadedBy || '').trim();
+  if (!name || /^attachment$/i.test(name) || /^someone$/i.test(name)) return null;
+  return name.slice(0, 80);
+}
+
+function fileUploaderName(file, comments = []) {
+  const stamped = stampUploaderName(file);
+  if (stamped) return stamped;
+  const fileId = file?.id != null ? String(file.id) : '';
+  const fileUrl = String(file?.url || file?.fileUrl || '').trim();
+  const fileName = String(file?.name || '').trim().toLowerCase();
+  for (const entry of comments) {
+    const author = stampUploaderName(entry);
+    if (!author) continue;
+    const match = (entry.files || []).some((f) => (
+      (fileId && String(f.id) === fileId)
+      || (fileUrl && String(f.url || f.fileUrl || '') === fileUrl)
+      || (fileName && String(f.name || '').trim().toLowerCase() === fileName)
+    ));
+    if (match) return author;
+    if (fileName && String(entry.text || '').toLowerCase().includes(fileName)) return author;
+  }
+  return null;
+}
+
+function feedAuthor(entry, comments, card) {
+  const direct = stampUploaderName(entry);
+  if (direct) return direct;
+  for (const file of entry.files || []) {
+    const fromFile = fileUploaderName(file, comments);
+    if (fromFile) return fromFile;
+  }
+  return card?.assignee?.name || 'Someone';
+}
+
 function fileKind(name) {
   const ext = String(name || '').split('.').pop()?.toLowerCase() || '';
   const map = {
@@ -223,7 +259,8 @@ export default function CardDrawer({
         id: `attachment-${file.id || file.url || file.name}`,
         kind: 'attachment',
         _kind: 'attachment',
-        author: 'Attachment',
+        author: fileUploaderName(file, commentList) || card?.assignee?.name || 'Someone',
+        authorId: file.uploadedById || null,
         avatar: null,
         text: 'Attached a file',
         files: [file],
@@ -246,7 +283,7 @@ export default function CardDrawer({
       return tb - ta;
     });
     return items;
-  }, [commentList, activity, showActivityDetails, files]);
+  }, [commentList, activity, showActivityDetails, files, card]);
 
   if (!card || !edit) return null;
 
@@ -888,15 +925,17 @@ export default function CardDrawer({
 
             {feed.length ? (
               <div className="card-activity-feed">
-                {feed.map((entry) => (
+                {feed.map((entry) => {
+                  const who = feedAuthor(entry, commentList, card);
+                  return (
                   <article
                     key={entry.id}
                     className={`card-activity-item${entry._kind === 'comment' || entry._kind === 'attachment' ? ' is-comment' : ' is-system'}${entry._pending ? ' is-pending' : ''}`}
                   >
-                    <Avatar name={entry.author} size={32} className="card-avatar" />
+                    <Avatar name={who} size={32} className="card-avatar" />
                     <div className="card-activity-body">
                       <p className="card-activity-meta">
-                        <strong>{entry.author}</strong>
+                        <strong>{who}</strong>
                         <time className="card-time-link">{formatStamp(entry.createdAt, entry.time)}</time>
                         {entry._pending ? (
                           <span className="delivery-pending-pill">
@@ -973,7 +1012,9 @@ export default function CardDrawer({
                         </>
                       )}
                     </div>
-                  </article>                ))}
+                  </article>
+                  );
+                })}
               </div>
             ) : (
               <p className="card-empty-line">No comments yet — be the first</p>

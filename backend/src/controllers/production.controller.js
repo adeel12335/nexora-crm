@@ -189,6 +189,8 @@ function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
         size: f.size,
         type: f.type,
         uploadedAt: f.uploadedAt,
+        uploadedById: f.uploadedById ?? null,
+        uploadedByName: f.uploadedByName || null,
         // Omit base64 data URLs from list payloads (huge).
         url: typeof f.url === 'string' && f.url.startsWith('data:') ? null : f.url,
       }))
@@ -382,9 +384,22 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
       type: String(f.type || 'application/octet-stream'),
       url: url || null,
       uploadedAt: f.uploadedAt || new Date().toISOString(),
+      uploadedById: stampUploaderId(f),
+      uploadedByName: stampUploaderName(f),
     },
     totalBytes: nextTotal,
   };
+}
+
+function stampUploaderId(f) {
+  const id = Number(f?.uploadedById ?? f?.authorId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function stampUploaderName(f) {
+  const name = String(f?.uploadedByName || f?.author || f?.uploadedBy || '').trim();
+  if (!name || /^attachment$/i.test(name)) return null;
+  return name.slice(0, 80);
 }
 
 /** Newest N comments — the stored list is newest-first, imports may not be. */
@@ -410,6 +425,8 @@ function mapCommentList(raw, { light = false } = {}) {
         type: f?.type || null,
         url: light && typeof url === 'string' && url.startsWith('data:') ? null : url,
         uploadedAt: f?.uploadedAt || null,
+        uploadedById: f?.uploadedById ?? f?.authorId ?? null,
+        uploadedByName: f?.uploadedByName || f?.author || null,
       };
     }).filter((f) => f.name || f.url) : [];
     return {
@@ -444,7 +461,11 @@ function sanitizeCommentList(commentList) {
       });
       totalBytes = result.totalBytes;
       if (result.skip || !result.file) continue;
-      files.push(result.file);
+      files.push({
+        ...result.file,
+        uploadedById: result.file.uploadedById || (Number.isInteger(Number(raw?.authorId)) ? Number(raw.authorId) : null),
+        uploadedByName: result.file.uploadedByName || String(raw?.author || '').trim().slice(0, 80) || null,
+      });
     }
     if (!text && !files.length) continue;
     const authorId = Number(raw?.authorId);
@@ -729,7 +750,14 @@ function mergeIncomingFileList(incoming, previous = []) {
     const prev = prevById.get(String(f.id));
     if (!prev) return f;
     const hasUrl = Boolean(String(f.url || f.fileUrl || '').trim());
-    if (hasUrl) return f;
+    if (hasUrl) {
+      return {
+        ...prev,
+        ...f,
+        uploadedById: stampUploaderId(f) || stampUploaderId(prev),
+        uploadedByName: stampUploaderName(f) || stampUploaderName(prev),
+      };
+    }
     return {
       ...prev,
       ...f,
@@ -738,6 +766,24 @@ function mergeIncomingFileList(incoming, previous = []) {
       name: f.name || prev.name,
       type: f.type || prev.type,
       uploadedAt: f.uploadedAt || prev.uploadedAt,
+      uploadedById: stampUploaderId(f) || stampUploaderId(prev),
+      uploadedByName: stampUploaderName(f) || stampUploaderName(prev),
+    };
+  });
+}
+
+function stampNewFileAuthors(files, previous, user) {
+  const prevIds = new Set((Array.isArray(previous) ? previous : []).map((f) => String(f.id)));
+  return (Array.isArray(files) ? files : []).map((f) => {
+    if (!f || typeof f !== 'object') return f;
+    if (stampUploaderName(f)) return f;
+    if (prevIds.has(String(f.id))) return f;
+    const name = String(user?.name || '').trim().slice(0, 80) || null;
+    if (!name) return f;
+    return {
+      ...f,
+      uploadedById: Number(user?.id) || null,
+      uploadedByName: name,
     };
   });
 }
@@ -963,7 +1009,7 @@ export async function createCard(req, res) {
 
   const { extras: matured } = materializeExtrasDataUrls({
     commentList: stampCommentAuthors(commentList, req.user),
-    fileList,
+    fileList: stampNewFileAuthors(fileList, [], req.user),
     feedback,
     deliveryList,
   });
@@ -1086,7 +1132,11 @@ export async function updateCard(req, res) {
   // Soft-clean legacy Trello link rows so stage drag-drop never fails validation.
   // Clients may omit data: URLs for existing attachments — restore them by id.
   const incomingFiles = body.fileList !== undefined
-    ? mergeIncomingFileList(body.fileList, prevExtras.fileList)
+    ? stampNewFileAuthors(
+      mergeIncomingFileList(body.fileList, prevExtras.fileList),
+      prevExtras.fileList,
+      req.user,
+    )
     : prevExtras.fileList;
   const nextCommentList = body.commentList !== undefined
     ? mergeCommentFileUrls(

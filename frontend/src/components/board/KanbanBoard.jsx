@@ -52,7 +52,7 @@ function hydrateCard(card) {
 }
 
 /** Upload File objects one-by-one so a single stall cannot freeze the batch. */
-async function uploadFilesToHost(token, files) {
+async function uploadFilesToHost(token, files, actor) {
   const list = Array.from(files || []).filter(Boolean);
   if (!list.length) return [];
   const hosted = [];
@@ -67,6 +67,8 @@ async function uploadFilesToHost(token, files) {
     type: f.type || 'application/octet-stream',
     url: f.url,
     uploadedAt: f.uploadedAt || new Date().toISOString(),
+    uploadedById: actor?.id ?? null,
+    uploadedByName: actor?.name || null,
   }));
 }
 
@@ -571,7 +573,7 @@ export default function KanbanBoard() {
     let fileList = [];
     if (rawFiles.length) {
       try {
-        fileList = await uploadFilesToHost(token, rawFiles);
+        fileList = await uploadFilesToHost(token, rawFiles, user);
       } catch (err) {
         showToast(err.message || 'Could not attach files');
         throw err;
@@ -683,6 +685,8 @@ export default function KanbanBoard() {
       type: file.type || 'application/octet-stream',
       url: URL.createObjectURL(file),
       uploadedAt: new Date().toISOString(),
+      uploadedById: user?.id ?? null,
+      uploadedByName: user?.name || null,
       _pending: true,
     }));
 
@@ -704,7 +708,7 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const hosted = picked.length ? await uploadFilesToHost(token, picked) : [];
+        const hosted = picked.length ? await uploadFilesToHost(token, picked, user) : [];
         revokeBlobUrls(blobEntries);
         const latest = cardsRef.current.find((c) => c.id === cardId);
         const nextComments = (latest?.commentList || commentList).map((c) => (
@@ -750,6 +754,8 @@ export default function KanbanBoard() {
       type: file.type || 'application/octet-stream',
       url: URL.createObjectURL(file),
       uploadedAt: new Date().toISOString(),
+      uploadedById: user?.id ?? null,
+      uploadedByName: user?.name || null,
       _pending: true,
     }));
     const placeholderIds = new Set(placeholders.map((f) => String(f.id)));
@@ -774,7 +780,7 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
-        const hosted = await uploadFilesToHost(token, ok);
+        const hosted = await uploadFilesToHost(token, ok, user);
         revokeBlobUrls(placeholders);
         const latest = cardsRef.current.find((c) => c.id === cardId);
         const withoutPlaceholders = (latest?.fileList || optimisticList)
@@ -849,15 +855,21 @@ export default function KanbanBoard() {
   return (
     <section className="board-section">
       <div className="board-heading-row">
+        <label className="board-search search-box">
+          <Icon id="i-search" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            type="search"
+            placeholder="Search cards by client name…"
+            aria-label="Search cards"
+          />
+        </label>
         <div className="board-title-wrap">
           <h2>Production Board</h2>
           <span className="board-live-badge">Includes Live stage</span>
         </div>
         <div className="board-tools">
-          <label className="search-box" style={{ width: 170 }}>
-            <Icon id="i-search" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} type="search" placeholder="Search cards..." />
-          </label>
           <button
             type="button"
             className={`tool-btn${filterOpen ? ' is-active' : ''}`}

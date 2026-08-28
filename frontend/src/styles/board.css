@@ -1,12 +1,28 @@
 .board-section { min-height: 320px; padding: 0 32px 32px; }
-.board-heading-row { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:16px 0 18px; border-top:1px solid var(--border); }
-.board-title-wrap { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.board-heading-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "search search"
+    "title tools";
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--border);
+}
+.board-search {
+  grid-area: search;
+  width: 100% !important;
+  max-width: none;
+  height: 44px;
+}
+.board-title-wrap { display:flex; align-items:center; gap:8px; flex-wrap:wrap; grid-area: title; }
 .board-title-wrap h2 { margin:0; font-size:22px; letter-spacing:-.03em; }
 .plain-icon { width:40px; height:40px; border-radius:10px; background:transparent; color:var(--muted); border:0; cursor:pointer; flex-shrink:0; }
 .plain-icon svg { width:18px; }
 .plain-icon:hover { background:var(--surface-3); color:var(--text); }
 .board-live-badge { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; background:rgba(47,111,237,.12); color:#2F6FED; font-size:11px; font-weight:700; }
-.board-tools { display:flex; margin-left:auto; justify-content:flex-end; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+.board-tools { display:flex; justify-content:flex-end; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; grid-area: tools; }
 .tool-btn,.primary-btn,.secondary-btn { border:1px solid var(--border); min-height:44px; padding:0 15px; border-radius:10px; background:var(--surface); color:var(--text); cursor:pointer; font-size:13px; font-weight:700; transition:.2s var(--ease); }
 .tool-btn { display:flex; align-items:center; justify-content:center; gap:7px; }
 .tool-btn svg { width:16px; }
@@ -217,23 +233,23 @@
   background: var(--stage);
 }
 
-/* Trello-style unread counter, pinned beside the title. */
+/* Trello-style unread badge in the card footer. */
 .card-updates {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 99px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
   background: #c9372c;
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
 }
-.card-updates svg { width: 11px; height: 11px; flex-shrink: 0; }
+.card-updates svg { width: 12px; height: 12px; flex-shrink: 0; stroke: currentColor; }
 .task-card.has-unread .card-updates { animation: unread-pop 2.4s ease-in-out infinite; }
 @keyframes unread-pop {
   0%, 88%, 100% { box-shadow: 0 0 0 0 rgba(201,55,44,0); }
@@ -310,9 +326,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px 8px;
-  margin-left: auto;
   min-width: 0;
   color: var(--muted);
   font-size: 11px;
@@ -1012,17 +1026,24 @@
 
 @media (max-width: 760px) {
   .board-section { padding: 0 14px 24px; }
-  .board-heading-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-top: 14px; }
+  .board-heading-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "search search"
+      "title tools";
+    gap: 10px;
+    padding-top: 14px;
+  }
   .board-title-wrap h2 { font-size: 20px; }
   .board-live-badge { display: none; }
   .board-tools {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    grid-column: 1 / -1;
-    width: 100%;
+    display: flex;
+    grid-area: tools;
+    width: auto;
     gap: 8px;
   }
-  .board-tools .search-box { display: flex !important; width: auto !important; min-width: 0; }
+  .board-search { display: flex !important; width: 100% !important; }
   .board-tools .tool-btn span { display: none; }
   .kanban,
   .kanban.kanban-six,
