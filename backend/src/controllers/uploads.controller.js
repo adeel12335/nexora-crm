@@ -1,17 +1,29 @@
+import fs from 'fs';
+import crypto from 'crypto';
 import multer from 'multer';
 import {
   ensureUploadDirs,
+  finalizeStoredUpload,
   isAllowedUploadName,
   materializeFileAttachment,
-  saveUploadBuffer,
   UPLOAD_ROOT,
+  UPLOAD_TMP_DIR,
 } from '../services/uploads.js';
+import { enqueueUploadWork } from '../services/uploadQueue.js';
 import { pool } from '../config/db.js';
 
 ensureUploadDirs();
 
-const memoryUpload = multer({
-  storage: multer.memoryStorage(),
+const diskUpload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      ensureUploadDirs();
+      cb(null, UPLOAD_TMP_DIR);
+    },
+    filename(_req, _file, cb) {
+      cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`);
+    },
+  }),
   limits: {
     fileSize: 5 * 1024 * 1024,
     files: 10,
@@ -26,11 +38,22 @@ const memoryUpload = multer({
   },
 });
 
-export const uploadProductionFilesMiddleware = memoryUpload.array('files', 10);
+export const uploadProductionFilesMiddleware = diskUpload.array('files', 10);
+
+async function unlinkTempFiles(files) {
+  await Promise.all(
+    (files || []).map((file) => {
+      if (!file?.path) return Promise.resolve();
+      return fs.promises.unlink(file.path).catch(() => {});
+    }),
+  );
+}
 
 /**
  * POST /api/production/uploads
  * multipart field name: files
+ * Streams to disk, then hashes into a content-addressed cache so repeats
+ * skip a second write and Hostinger I/O stays serial.
  */
 export async function uploadProductionFiles(req, res) {
   const files = Array.isArray(req.files) ? req.files : [];
@@ -38,25 +61,33 @@ export async function uploadProductionFiles(req, res) {
     return res.status(400).json({ error: 'No files uploaded — use form field "files"' });
   }
 
-  const saved = [];
   let totalBytes = 0;
-
   for (const file of files) {
     totalBytes += file.size;
     if (totalBytes > 8 * 1024 * 1024) {
+      await unlinkTempFiles(files);
       return res.status(400).json({ error: 'Files together cannot exceed 8 MB' });
     }
-    saved.push(
-      saveUploadBuffer({
-        buffer: file.buffer,
+  }
+
+  const saved = [];
+  try {
+    for (const file of files) {
+      const meta = await enqueueUploadWork(() => finalizeStoredUpload({
+        tempPath: file.path,
         originalName: file.originalname,
         mimeType: file.mimetype,
-      }),
-    );
+        size: file.size,
+      }));
+      saved.push(meta);
+    }
+  } catch (err) {
+    await unlinkTempFiles(files);
+    throw err;
   }
 
   res.status(201).json({
-    files: saved.map(({ relativePath, ...rest }) => rest),
+    files: saved.map(({ relativePath, cached, ...rest }) => rest),
   });
 }
 

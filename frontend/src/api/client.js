@@ -56,18 +56,30 @@ async function uploadFiles(path, files, token) {
   for (const file of files) {
     form.append('files', file);
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: form,
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(data?.error || `Upload failed (${res.status})`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 90_000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: form,
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(data?.error || `Upload failed (${res.status})`);
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Upload timed out — try a smaller file');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 export const api = {
@@ -251,6 +263,8 @@ export const api = {
     request('/production/cards', { method: 'POST', body, token }),
   updateProductionCard: (token, id, body) =>
     request(`/production/cards/${id}`, { method: 'PATCH', body, token }),
+  moveProductionCard: (token, id, body) =>
+    request(`/production/cards/${id}/move`, { method: 'PATCH', body, token }),
   deleteProductionCard: (token, id) =>
     request(`/production/cards/${id}`, { method: 'DELETE', token }),
   /** Upload files to Hostinger disk; returns { files: [{ id, name, size, type, url, uploadedAt }] } */

@@ -1,21 +1,15 @@
+import { useRef } from 'react';
 import { Icon } from '../../icons/IconSprite.jsx';
-import { getDeadlineInfo } from '../../utils/deadlineUtils.js';
 import { priorityLabel } from '../../utils/boardValidation.js';
 import { isLiveLikeStage } from '../../data/productionStages.js';
-import Avatar from './Avatar.jsx';
 
-/** "2h ago" / "3d ago" for the last comment or edit on the card. */
-function relativeTime(value) {
-  const t = value ? new Date(value).getTime() : 0;
-  if (!t || Number.isNaN(t)) return '';
-  const mins = Math.round((Date.now() - t) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.round(days / 30)}mo ago`;
+const DRAFT_SUFFIX = /\s*[—–-]\s*new draft\s*$/i;
+
+function displayClientName(card) {
+  const client = String(card.client || '').trim();
+  if (client) return client;
+  const title = String(card.title || '').replace(DRAFT_SUFFIX, '').trim();
+  return title || 'Untitled';
 }
 
 export default function TaskCard({
@@ -25,11 +19,13 @@ export default function TaskCard({
   onSelect,
   onDragStart,
   onDragEnd,
+  onCardDragOver,
+  onCardDrop,
   dragging,
+  dropBefore,
   unreadCount = 0,
-  activityAt = null,
 }) {
-  const deadline = getDeadlineInfo(card.dueDate);
+  const draggedRef = useRef(false);
   const comments = card.comments || card.commentList?.length || 0;
   const attachments = card.attachments || card.fileList?.length || 0;
   const feedback = card.feedback?.status;
@@ -37,38 +33,63 @@ export default function TaskCard({
   const showPriority = priority && priority !== 'none';
   const liveUrl = String(card.liveUrl || '').trim();
   const liveLike = isLiveLikeStage(card.stage);
-  const touched = relativeTime(activityAt || card.updatedAt || card.createdAt);
-  const title = String(card.title || '').trim();
-  const clientName = String(card.client || '').trim();
-  // Avoid "John / John" when Trello-imported titles are just the client name.
-  const showClientLine = clientName && clientName.toLowerCase() !== title.toLowerCase()
-    && !title.toLowerCase().startsWith(`${clientName.toLowerCase()} —`)
-    && !title.toLowerCase().startsWith(`${clientName.toLowerCase()} -`);
+  const name = displayClientName(card);
+  const hasMeta = comments > 0 || attachments > 0;
+  const hasTags = Boolean(
+    (showPriority && priority !== 'none')
+    || (feedback && feedback !== 'none')
+    || (liveLike && liveUrl),
+  );
+
+  function handleClick() {
+    if (draggedRef.current) {
+      draggedRef.current = false;
+      return;
+    }
+    onSelect(card.id);
+  }
 
   return (
     <article
-      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${liveLike ? ' is-live' : ''}${unreadCount > 0 ? ' has-unread' : ''}`}
+      className={`task-card${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}${liveLike ? ' is-live' : ''}${unreadCount > 0 ? ' has-unread' : ''}${dropBefore ? ' drop-before' : ''}`}
       style={{ '--stage': stageColor }}
       role="button"
       tabIndex={0}
-      aria-label={`Open ${card.title} details${unreadCount > 0 ? `, ${unreadCount} unread updates` : ''}`}
+      aria-label={`Open ${name} details${unreadCount > 0 ? `, ${unreadCount} unread updates` : ''}`}
       draggable
-      onClick={() => onSelect(card.id)}
+      onClick={handleClick}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           onSelect(card.id);
         }
       }}
-      onDragStart={(e) => onDragStart(e, card)}
+      onDragStart={(e) => {
+        draggedRef.current = true;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(card.id));
+        onDragStart(e, card);
+      }}
       onDragEnd={onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = e.currentTarget.getBoundingClientRect();
+        onCardDragOver?.(e.clientY > rect.top + rect.height / 2);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onCardDrop?.(e, card);
+      }}
     >
       {showPriority ? (
         <span className={`priority-flag priority-${priority === true ? 'high' : priority}`} />
       ) : null}
 
       <div className="card-top">
-        <strong>{title || 'Untitled'}</strong>
+        <strong>{name}</strong>
         {unreadCount > 0 ? (
           <span
             className="card-updates"
@@ -80,54 +101,51 @@ export default function TaskCard({
         ) : null}
       </div>
 
-      <div className="card-people">
-        {showClientLine ? <span className="company">{clientName}</span> : null}
-        {card.clientAgentName ? (
+      {card.clientAgentName ? (
+        <div className="card-people">
           <span className="card-owner">Client of {card.clientAgentName}</span>
-        ) : null}
-      </div>
-      <div className="card-tags">
-        <span className={`type-pill ${card.type}`}>{card.type === 'draft' ? 'Draft' : 'Revision'}</span>
-        {showPriority ? (
-          <span className={`priority-pill priority-${priority === true ? 'high' : priority}`}>
-            {priorityLabel(priority)}
-          </span>
-        ) : null}
-        {feedback && feedback !== 'none' ? (
-          <span className={`feedback-pill feedback-${feedback}`}>
-            {feedback === 'approved' ? 'Approved' : feedback === 'changes_requested' ? 'Changes' : 'Pending'}
-          </span>
-        ) : null}
-        {liveLike && liveUrl ? (
-          <a
-            className="live-pill"
-            href={liveUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            title={liveUrl}
-          >
-            <Icon id="i-link" /> Live
-          </a>
-        ) : null}
-      </div>
-
-      <div className="card-bottom">
-        <Avatar name={card.assignee?.name} size={26} />
-        <div className="card-meta">
-          {comments > 0 ? (
-            <span title={`${comments} comments`}><Icon id="i-message" />{comments}</span>
-          ) : null}
-          {attachments > 0 ? (
-            <span title={`${attachments} files`}><Icon id="i-paperclip" />{attachments}</span>
-          ) : null}
-          <span className={`deadline-pill ${deadline.tone}`}>
-            <Icon id="i-clock" />{deadline.label}
-          </span>
         </div>
-      </div>
+      ) : null}
 
-      {touched ? <span className="card-touched">Updated {touched}</span> : null}
+      {hasTags ? (
+        <div className="card-tags">
+          {showPriority ? (
+            <span className={`priority-pill priority-${priority === true ? 'high' : priority}`}>
+              {priorityLabel(priority)}
+            </span>
+          ) : null}
+          {feedback && feedback !== 'none' ? (
+            <span className={`feedback-pill feedback-${feedback}`}>
+              {feedback === 'approved' ? 'Approved' : feedback === 'changes_requested' ? 'Changes' : 'Pending'}
+            </span>
+          ) : null}
+          {liveLike && liveUrl ? (
+            <a
+              className="live-pill"
+              href={liveUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title={liveUrl}
+            >
+              <Icon id="i-link" /> Live
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {hasMeta ? (
+        <div className="card-bottom">
+          <div className="card-meta">
+            {comments > 0 ? (
+              <span title={`${comments} comments`}><Icon id="i-message" />{comments}</span>
+            ) : null}
+            {attachments > 0 ? (
+              <span title={`${attachments} files`}><Icon id="i-paperclip" />{attachments}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }

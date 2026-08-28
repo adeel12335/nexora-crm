@@ -220,6 +220,7 @@ function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
     dueDate: row.due_date,
     comments: Number(row.comments_count || 0),
     attachments: Number(row.attachments_count || 0),
+    sortOrder: Number(row.sort_order || 0),
     commentList: mapCommentList(newestComments(extras.commentList, commentLimit), { light }),
     fileList,
     deliveryList: mapDeliveryList(extras.deliveryList, { light }),
@@ -230,13 +231,9 @@ function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
       updatedAt: null,
       author: null,
     },
+    clientAgentId: row.client_agent_id ?? null,
+    clientAgentName: row.client_agent_name ?? null,
   };
-
-  // Agent ownership is admin/CRM-only — never expose to production.
-  if (!isProduction) {
-    card.clientAgentId = row.client_agent_id ?? null;
-    card.clientAgentName = row.client_agent_name ?? null;
-  }
 
   return card;
 }
@@ -857,7 +854,7 @@ export async function listCards(req, res) {
   }
 
   const [rows] = await pool.query(
-    `${CARD_SELECT} ${where} ORDER BY pc.due_date ASC, pc.id DESC`,
+    `${CARD_SELECT} ${where} ORDER BY pc.sort_order ASC, pc.id ASC`,
     params,
   );
   const role = req.user?.role || null;
@@ -972,16 +969,22 @@ export async function createCard(req, res) {
   });
   const extras = sanitizeExtras(matured);
 
+  const [[{ nextSort }]] = await pool.query(
+    'SELECT COALESCE(MIN(sort_order), 10) - 10 AS nextSort FROM production_cards WHERE stage = ?',
+    [stageNorm],
+  );
+
   const [result] = await pool.query(
     `INSERT INTO production_cards
-      (title, client, client_id, type, stage, assignee_id, priority, priority_key, description, live_url, extras_json, due_date, comments_count, attachments_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (title, client, client_id, type, stage, sort_order, assignee_id, priority, priority_key, description, live_url, extras_json, due_date, comments_count, attachments_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       titleTrim,
       clientName,
       resolved.id,
       type,
       stageNorm,
+      Number(nextSort),
       safeAssigneeId,
       priorityFlag(priorityKey),
       priorityKey,
@@ -1168,6 +1171,116 @@ export async function updateCard(req, res) {
   });
 
   res.json({ card });
+}
+
+/**
+ * PATCH /api/production/cards/:id/move
+ * Reorder within a column or move across stages without rewriting extras_json.
+ * body: { stage, beforeId?: number|null }
+ */
+export async function moveCardPosition(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid card id' });
+  }
+
+  const [[existing]] = await pool.query('SELECT * FROM production_cards WHERE id = ?', [id]);
+  if (!existing) return res.status(404).json({ error: 'Card not found' });
+
+  const targetStage = normalizeStage(req.body?.stage ?? existing.stage);
+  if (!isValidStage(req.body?.stage ?? existing.stage)) {
+    return res.status(400).json({ error: 'Invalid stage' });
+  }
+
+  const rawBefore = req.body?.beforeId;
+  const beforeId = rawBefore == null || rawBefore === ''
+    ? null
+    : Number(rawBefore);
+  if (beforeId != null && (!Number.isInteger(beforeId) || beforeId <= 0)) {
+    return res.status(400).json({ error: 'Invalid beforeId' });
+  }
+
+  const liveUrl = normalizeUrl(existing.live_url);
+  if (requiresLiveLink(targetStage) && !isValidUrl(liveUrl)) {
+    return res.status(400).json({ error: 'Add a valid live link before moving to this stage' });
+  }
+
+  const conn = await pool.getConnection();
+  let orderedIds = [];
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      `SELECT id FROM production_cards
+       WHERE stage = ? AND id <> ?
+       ORDER BY sort_order ASC, id ASC
+       FOR UPDATE`,
+      [targetStage, id],
+    );
+    orderedIds = rows.map((row) => row.id);
+    let insertAt = orderedIds.length;
+    if (beforeId != null) {
+      const idx = orderedIds.indexOf(beforeId);
+      if (idx >= 0) insertAt = idx;
+    }
+    orderedIds.splice(insertAt, 0, id);
+
+    for (let i = 0; i < orderedIds.length; i += 1) {
+      const cardId = orderedIds[i];
+      if (cardId === id) {
+        await conn.query(
+          'UPDATE production_cards SET stage = ?, sort_order = ? WHERE id = ?',
+          [targetStage, i * 10, id],
+        );
+      } else {
+        await conn.query(
+          'UPDATE production_cards SET sort_order = ?, updated_at = updated_at WHERE id = ?',
+          [i * 10, cardId],
+        );
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  const [[row]] = await pool.query(`${CARD_SELECT} WHERE pc.id = ?`, [id]);
+  const card = toCard(row, { light: true, role: req.user?.role || null });
+
+  const prevStage = normalizeStage(existing.stage);
+  if (prevStage !== targetStage) {
+    const prevExtras = parseExtras(existing.extras_json);
+    const nextExtras = parseExtras(row.extras_json);
+    const prevPriority = existing.priority_key || (existing.priority ? 'high' : 'none');
+    (async () => {
+      const [[assignee]] = await pool.query(
+        'SELECT whatsapp_number FROM users WHERE id = ?',
+        [existing.assignee_id],
+      );
+      await notifyProductionCardChange({
+        userId: card.assignee?.id,
+        whatsappNumber: assignee?.whatsapp_number || null,
+        cardTitle: card.title,
+        clientName: card.client,
+        assigneeName: card.assignee?.name,
+        actorName: req.user?.name || null,
+        actorUserId: req.user?.id || null,
+        relatedCardId: card.id,
+        prevStage,
+        nextStage: targetStage,
+        prevPriority,
+        nextPriority: prevPriority,
+        prevExtras,
+        nextExtras,
+      });
+    })().catch((err) => {
+      console.error('[production-move-notify]', err.message);
+    });
+  }
+
+  res.json({ card, orderedIds });
 }
 
 export async function deleteCard(req, res) {

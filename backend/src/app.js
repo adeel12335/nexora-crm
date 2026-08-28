@@ -14,7 +14,7 @@ import { productionRoutes } from './routes/production.routes.js';
 import { followupsRoutes } from './routes/followups.routes.js';
 import path from 'path';
 import fs from 'fs';
-import { ensureUploadDirs, UPLOAD_ROOT } from './services/uploads.js';
+import { ensureUploadDirs, isHashedUploadPath, UPLOAD_ROOT } from './services/uploads.js';
 
 export const app = express();
 
@@ -67,13 +67,34 @@ app.use('/api/uploads', (req, res, next) => {
     return res.status(400).json({ error: 'Invalid path' });
   }
   if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return next();
+  const hashed = isHashedUploadPath(rel);
   return res.sendFile(abs, {
-    headers: { 'X-Content-Type-Options': 'nosniff' },
-    maxAge: '7d',
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': hashed
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=604800',
+    },
+    maxAge: hashed ? '1y' : '7d',
   });
 });
-app.use('/api/uploads', express.static(UPLOAD_ROOT, { fallthrough: true, maxAge: '7d' }));
-app.use('/uploads', express.static(UPLOAD_ROOT, { fallthrough: true, maxAge: '7d' }));
+function uploadCacheHeaders(res, filePath) {
+  const hashed = isHashedUploadPath(filePath);
+  res.setHeader(
+    'Cache-Control',
+    hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=604800',
+  );
+}
+app.use('/api/uploads', express.static(UPLOAD_ROOT, {
+  fallthrough: true,
+  maxAge: '7d',
+  setHeaders: uploadCacheHeaders,
+}));
+app.use('/uploads', express.static(UPLOAD_ROOT, {
+  fallthrough: true,
+  maxAge: '7d',
+  setHeaders: uploadCacheHeaders,
+}));
 console.log(`[uploads] serving from ${UPLOAD_ROOT}`);
 
 /** Load-balancer / uptime probe (no auth). */

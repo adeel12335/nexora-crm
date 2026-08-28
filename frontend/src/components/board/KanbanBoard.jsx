@@ -47,15 +47,20 @@ function hydrateCard(card) {
     feedback: card.feedback || { status: 'none', note: '', rating: null, updatedAt: null, author: null },
     comments: card.commentList?.length ?? card.comments ?? 0,
     attachments: card.fileList?.length ?? card.attachments ?? 0,
+    sortOrder: Number(card.sortOrder || 0),
   };
 }
 
-/** Upload File objects to Hostinger; returns card attachment metadata (http URLs). */
+/** Upload File objects one-by-one so a single stall cannot freeze the batch. */
 async function uploadFilesToHost(token, files) {
   const list = Array.from(files || []).filter(Boolean);
   if (!list.length) return [];
-  const data = await api.uploadProductionFiles(token, list);
-  return (data.files || []).map((f) => ({
+  const hosted = [];
+  for (const file of list) {
+    const data = await api.uploadProductionFiles(token, [file]);
+    hosted.push(...(data.files || []));
+  }
+  return hosted.map((f) => ({
     id: f.id,
     name: f.name,
     size: f.size,
@@ -65,21 +70,21 @@ async function uploadFilesToHost(token, files) {
   }));
 }
 
-function hasLiveLink(card) {
-  return Boolean(String(card?.liveUrl || '').trim());
+function revokeBlobUrls(files) {
+  for (const file of files || []) {
+    const url = String(file?.url || '');
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+  }
 }
 
-/** Most recent sign of life on a card: an edit, a comment, or its creation. */
-function cardActivityAt(card) {
-  let latest = 0;
-  const consider = (value) => {
-    const t = value ? new Date(value).getTime() : 0;
-    if (t && !Number.isNaN(t) && t > latest) latest = t;
-  };
-  consider(card?.updatedAt);
-  consider(card?.createdAt);
-  for (const comment of card?.commentList || []) consider(comment?.createdAt);
-  return latest;
+function sortByBoardOrder(a, b) {
+  const order = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+  if (order) return order;
+  return Number(a.id) - Number(b.id);
+}
+
+function hasLiveLink(card) {
+  return Boolean(String(card?.liveUrl || '').trim());
 }
 
 export default function KanbanBoard() {
@@ -95,6 +100,7 @@ export default function KanbanBoard() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -391,8 +397,8 @@ export default function KanbanBoard() {
   }
 
   /**
-   * Cards are ordered newest-activity-first: anything commented on, edited or
-   * just created floats to the top of its column, with unread cards above all.
+   * Manual board order (drag up/down). Unread badges stay on the card
+   * but no longer jump it to the top — that fought reorder.
    */
   const cardsByStage = useMemo(() => {
     const grouped = new Map(productionStages.map((s) => [s.id, []]));
@@ -401,18 +407,11 @@ export default function KanbanBoard() {
       grouped.get(card.stage).push(card);
     }
     for (const list of grouped.values()) {
-      list.sort((a, b) => {
-        const unreadA = Number(unreadByCard[String(a.id)] || 0) > 0 ? 1 : 0;
-        const unreadB = Number(unreadByCard[String(b.id)] || 0) > 0 ? 1 : 0;
-        if (unreadA !== unreadB) return unreadB - unreadA;
-        const activityDiff = cardActivityAt(b) - cardActivityAt(a);
-        if (activityDiff) return activityDiff;
-        return Number(b.id) - Number(a.id);
-      });
+      list.sort(sortByBoardOrder);
     }
     return grouped;
     // matchesFilters closes over query/filter, both listed below.
-  }, [cards, query, filter, unreadByCard]);
+  }, [cards, query, filter]);
 
   function mergeCommentLists(localList = [], serverList = []) {
     return mergeById(localList, serverList, (local, server) => ({
@@ -453,17 +452,70 @@ export default function KanbanBoard() {
 
   function handleDragStart(e, card) {
     e.dataTransfer.setData('text/plain', String(card.id));
+    e.dataTransfer.effectAllowed = 'move';
     setDraggingId(card.id);
+    setDropTarget(null);
   }
 
   function handleDragEnd() {
     setDraggingId(null);
+    setDropTarget(null);
   }
 
-  async function moveCard(cardId, stageId) {
-    const card = cards.find((item) => item.id === cardId);
+  function handleCardDragOver(stageId, index) {
+    setDropTarget((prev) => {
+      if (prev && prev.stageId === stageId && prev.index === index) return prev;
+      return { stageId, index };
+    });
+  }
+
+  function orderedIdsInStage(allCards, stageId) {
+    return allCards
+      .filter((c) => c.stage === stageId)
+      .sort(sortByBoardOrder)
+      .map((c) => c.id);
+  }
+
+  function isSameSpot(card, stageId, beforeId, allCards) {
+    if (normalizeProductionStage(card.stage) !== normalizeProductionStage(stageId)) return false;
+    const ids = orderedIdsInStage(allCards, stageId);
+    const idx = ids.findIndex((id) => Number(id) === Number(card.id));
+    if (idx < 0) return false;
+    const currentBefore = ids[idx + 1] ?? null;
+    if (beforeId == null) return currentBefore == null;
+    return Number(currentBefore) === Number(beforeId);
+  }
+
+  function applyLocalReorder(cardId, stageId, beforeId) {
+    commitCards((prev) => {
+      const moving = prev.find((c) => c.id === cardId);
+      if (!moving) return prev;
+      const rest = prev.filter((c) => c.id !== cardId);
+      const inTarget = rest.filter((c) => c.stage === stageId).sort(sortByBoardOrder);
+      let at = inTarget.length;
+      if (beforeId != null) {
+        const idx = inTarget.findIndex((c) => Number(c.id) === Number(beforeId));
+        if (idx >= 0) at = idx;
+      }
+      inTarget.splice(at, 0, { ...moving, stage: stageId });
+      const orderMap = new Map(inTarget.map((c, i) => [String(c.id), i * 10]));
+      return prev.map((c) => {
+        const order = orderMap.get(String(c.id));
+        if (order == null && Number(c.id) !== Number(cardId)) return c;
+        return hydrateCard({
+          ...c,
+          stage: Number(c.id) === Number(cardId) ? stageId : c.stage,
+          sortOrder: order ?? c.sortOrder,
+        });
+      });
+    });
+  }
+
+  async function moveCard(cardId, stageId, beforeId = null) {
+    const snapshot = cardsRef.current;
+    const card = snapshot.find((item) => item.id === cardId);
     const targetStage = normalizeProductionStage(stageId);
-    if (!card || card.stage === targetStage) return;
+    if (!card) return;
 
     if (requiresLiveLink(targetStage) && !hasLiveLink(card)) {
       showToast('Add the live link on the card first, then move to this stage');
@@ -471,21 +523,38 @@ export default function KanbanBoard() {
       return;
     }
 
+    if (isSameSpot(card, targetStage, beforeId, snapshot)) return;
+
+    const stageChanged = normalizeProductionStage(card.stage) !== targetStage;
     const fromTitle = productionStages.find((stage) => stage.id === card.stage)?.title;
     const toTitle = productionStages.find((stage) => stage.id === targetStage)?.title;
+    applyLocalReorder(cardId, targetStage, beforeId);
     try {
-      await persistCard(cardId, { stage: targetStage });
-      pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
-      showToast(`Moved "${card.title}" → ${toTitle}`);
+      await api.moveProductionCard(token, cardId, { stage: targetStage, beforeId });
+      if (stageChanged) {
+        pushActivity(cardId, `moved this card from ${fromTitle} to ${toTitle}`);
+        showToast(`Moved "${card.client || card.title}" → ${toTitle}`);
+      }
     } catch (err) {
+      commitCards(snapshot);
       showToast(err.message || 'Could not move card');
     }
   }
 
   function handleDrop(stageId) {
     if (draggingId == null) return;
-    moveCard(draggingId, stageId);
+    const visible = cardsByStage.get(stageId) || [];
+    const index = dropTarget?.stageId === stageId ? dropTarget.index : visible.length;
+    let beforeId = null;
+    if (index != null && index < visible.length) {
+      beforeId = visible[index].id;
+      if (Number(beforeId) === Number(draggingId)) {
+        beforeId = visible[index + 1]?.id ?? null;
+      }
+    }
+    moveCard(draggingId, stageId, beforeId);
     setDraggingId(null);
+    setDropTarget(null);
   }
 
   function handleAddCard(stageId) {
@@ -607,14 +676,15 @@ export default function KanbanBoard() {
     if (!card) return false;
     const cardId = card.id;
     const picked = Array.from(files || []);
-
-    let fileEntries = [];
-    try {
-      fileEntries = await uploadFilesToHost(token, picked);
-    } catch (err) {
-      showToast(err.message || 'Could not attach files');
-      return false;
-    }
+    const blobEntries = picked.map((file) => ({
+      id: localId('file'),
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      url: URL.createObjectURL(file),
+      uploadedAt: new Date().toISOString(),
+      _pending: true,
+    }));
 
     const entry = {
       id: localId('comment'),
@@ -623,7 +693,7 @@ export default function KanbanBoard() {
       authorId: user?.id ?? null,
       avatar: '/assets/avatar-jane.svg',
       text: String(text || '').trim(),
-      files: fileEntries,
+      files: blobEntries,
       time: 'now',
       createdAt: new Date().toISOString(),
       _pending: true,
@@ -634,14 +704,23 @@ export default function KanbanBoard() {
 
     enqueueCardSave(cardId, async () => {
       try {
+        const hosted = picked.length ? await uploadFilesToHost(token, picked) : [];
+        revokeBlobUrls(blobEntries);
         const latest = cardsRef.current.find((c) => c.id === cardId);
-        await persistCard(cardId, { commentList: latest?.commentList || commentList }, { sync: false });
+        const nextComments = (latest?.commentList || commentList).map((c) => (
+          String(c.id) === String(entry.id)
+            ? { ...c, files: hosted, _pending: false }
+            : c
+        ));
+        patchCardLocal(cardId, { commentList: nextComments });
+        await persistCard(cardId, { commentList: nextComments }, { sync: false });
         patchCardLocal(cardId, {
-          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
+          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || nextComments)
             .map((c) => (String(c.id) === String(entry.id) ? { ...c, _pending: false } : c)),
         });
         showToast('Comment saved');
       } catch (err) {
+        revokeBlobUrls(blobEntries);
         patchCardLocal(cardId, {
           commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || commentList)
             .filter((c) => String(c.id) !== String(entry.id)),
@@ -664,56 +743,69 @@ export default function KanbanBoard() {
     }
     if (errors.length) showToast(errors[0]);
 
-    try {
-      const hosted = await uploadFilesToHost(token, ok);
-      const uploaded = hosted.map((f) => ({ ...f, _pending: true }));
-      const optimisticList = [...uploaded, ...existing].slice(0, MAX_FILES_PER_CARD);
-      const attachComment = {
-        id: localId('comment'),
-        kind: 'comment',
-        author: user?.name || 'You',
-        authorId: user?.id ?? null,
-        avatar: '/assets/avatar-jane.svg',
-        text: uploaded.length === 1
-          ? `Attached ${uploaded[0].name}`
-          : `Attached ${uploaded.length} files`,
-        files: uploaded.map(({ _pending, ...rest }) => rest),
-        time: 'now',
-        createdAt: new Date().toISOString(),
-        _pending: true,
-      };
-      const nextComments = [attachComment, ...(card.commentList || [])];
-      patchCardLocal(cardId, { fileList: optimisticList, commentList: nextComments });
-      showToast(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`);
+    const placeholders = ok.map((file) => ({
+      id: localId('file'),
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      url: URL.createObjectURL(file),
+      uploadedAt: new Date().toISOString(),
+      _pending: true,
+    }));
+    const placeholderIds = new Set(placeholders.map((f) => String(f.id)));
+    const optimisticList = [...placeholders, ...existing].slice(0, MAX_FILES_PER_CARD);
+    const attachComment = {
+      id: localId('comment'),
+      kind: 'comment',
+      author: user?.name || 'You',
+      authorId: user?.id ?? null,
+      avatar: '/assets/avatar-jane.svg',
+      text: placeholders.length === 1
+        ? `Attached ${placeholders[0].name}`
+        : `Attached ${placeholders.length} files`,
+      files: placeholders,
+      time: 'now',
+      createdAt: new Date().toISOString(),
+      _pending: true,
+    };
+    const nextComments = [attachComment, ...(card.commentList || [])];
+    patchCardLocal(cardId, { fileList: optimisticList, commentList: nextComments });
+    showToast(placeholders.length === 1 ? 'Uploading file…' : `Uploading ${placeholders.length} files…`);
 
-      enqueueCardSave(cardId, async () => {
-        try {
-          const latest = cardsRef.current.find((c) => c.id === cardId);
-          const merged = (latest?.fileList || optimisticList).slice(0, MAX_FILES_PER_CARD);
-          const comments = latest?.commentList || nextComments;
-          await persistCard(cardId, { fileList: merged, commentList: comments }, { sync: false });
-          patchCardLocal(cardId, {
-            fileList: merged.map((f) => ({ ...f, _pending: false })),
-            commentList: comments.map((c) => (
-              String(c.id) === String(attachComment.id) ? { ...c, _pending: false } : c
-            )),
-          });
-        } catch (err) {
-          const uploadedIds = new Set(uploaded.map((f) => String(f.id)));
-          patchCardLocal(cardId, {
-            fileList: (cardsRef.current.find((c) => c.id === cardId)?.fileList || [])
-              .filter((f) => !uploadedIds.has(String(f.id))),
-            commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
-              .filter((c) => String(c.id) !== String(attachComment.id)),
-          });
-          showToast(err.message || 'Upload failed');
-        }
-      });
-      return true;
-    } catch (err) {
-      showToast(err.message || 'Upload failed');
-      return false;
-    }
+    enqueueCardSave(cardId, async () => {
+      try {
+        const hosted = await uploadFilesToHost(token, ok);
+        revokeBlobUrls(placeholders);
+        const latest = cardsRef.current.find((c) => c.id === cardId);
+        const withoutPlaceholders = (latest?.fileList || optimisticList)
+          .filter((f) => !placeholderIds.has(String(f.id)));
+        const merged = [...hosted, ...withoutPlaceholders].slice(0, MAX_FILES_PER_CARD);
+        const comments = (latest?.commentList || nextComments).map((c) => (
+          String(c.id) === String(attachComment.id)
+            ? { ...c, files: hosted, _pending: false }
+            : c
+        ));
+        patchCardLocal(cardId, { fileList: merged, commentList: comments });
+        await persistCard(cardId, { fileList: merged, commentList: comments }, { sync: false });
+        patchCardLocal(cardId, {
+          fileList: merged.map((f) => ({ ...f, _pending: false })),
+          commentList: comments.map((c) => (
+            String(c.id) === String(attachComment.id) ? { ...c, _pending: false } : c
+          )),
+        });
+        showToast(`${hosted.length} file${hosted.length > 1 ? 's' : ''} uploaded`);
+      } catch (err) {
+        revokeBlobUrls(placeholders);
+        patchCardLocal(cardId, {
+          fileList: (cardsRef.current.find((c) => c.id === cardId)?.fileList || [])
+            .filter((f) => !placeholderIds.has(String(f.id))),
+          commentList: (cardsRef.current.find((c) => c.id === cardId)?.commentList || [])
+            .filter((c) => String(c.id) !== String(attachComment.id)),
+        });
+        showToast(err.message || 'Upload failed');
+      }
+    });
+    return true;
   }
 
   function handleRemoveFile(cardId, fileId) {
@@ -806,13 +898,14 @@ export default function KanbanBoard() {
             cards={cardsByStage.get(stage.id) || []}
             selectedId={selectedId}
             draggingId={draggingId}
+            dropIndex={dropTarget?.stageId === stage.id ? dropTarget.index : null}
             onSelect={handleSelect}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onDrop={handleDrop}
+            onCardDragOver={handleCardDragOver}
             onAddCard={canCreateCards ? handleAddCard : null}
             unreadByCard={unreadByCard}
-            activityAt={cardActivityAt}
             mobileActive
           />
         ))}

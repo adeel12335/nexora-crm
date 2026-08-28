@@ -7,17 +7,19 @@ export default function KanbanColumn({
   cards,
   selectedId,
   draggingId,
+  dropIndex,
   onSelect,
   onDragStart,
   onDragEnd,
   onDrop,
+  onCardDragOver,
   onAddCard,
   unreadByCard = {},
-  activityAt = null,
   mobileActive,
 }) {
   const [dragOver, setDragOver] = useState(false);
   const canAdd = typeof onAddCard === 'function';
+  const dropAtEnd = draggingId != null && dropIndex === cards.length;
 
   return (
     <section className={`kanban-column${dragOver ? ' drag-over' : ''}${mobileActive ? '' : ' mobile-hidden'}`} style={{ '--stage': stage.color }}>
@@ -32,23 +34,36 @@ export default function KanbanColumn({
         ) : null}
       </header>
       <div
-        className="card-list"
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        className={`card-list${dropAtEnd ? ' drop-end' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          setDragOver(true);
+          if (e.target === e.currentTarget) {
+            onCardDragOver?.(stage.id, cards.length);
+          }
+        }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); onDrop(stage.id); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          onDrop(stage.id);
+        }}
       >
-        {cards.length ? cards.map((card) => (
+        {cards.length ? cards.map((card, index) => (
           <TaskCard
             key={card.id}
             card={card}
             stageColor={stage.color}
             selected={card.id === selectedId}
             dragging={card.id === draggingId}
+            dropBefore={draggingId != null && dropIndex === index && card.id !== draggingId}
             onSelect={onSelect}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
+            onCardDragOver={(after) => onCardDragOver?.(stage.id, after ? index + 1 : index)}
+            onCardDrop={() => onDrop(stage.id)}
             unreadCount={Number(unreadByCard[String(card.id)] || 0)}
-            activityAt={activityAt ? activityAt(card) : null}
           />
         )) : <div className="empty-state">No matching cards</div>}
       </div>

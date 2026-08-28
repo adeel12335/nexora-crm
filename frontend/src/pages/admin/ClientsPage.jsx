@@ -69,7 +69,7 @@ function blankPushForm(client, assignees) {
   const productionUser = assignees.find((u) => u.role === 'production');
   const due = computeDueDate('draft', new Date());
   return {
-    title: client ? `${client.name} — New draft` : '',
+    title: client ? client.name : '',
     description: '',
     type: 'draft',
     stage: productionStages[0]?.id || 'new_project_create_draft',

@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS production_cards (
     'pages_to_relive',
     'stopped_process'
   ) NOT NULL DEFAULT 'new_project_create_draft',
+  sort_order INT NOT NULL DEFAULT 0,
   assignee_id INT NOT NULL,
   priority TINYINT(1) NOT NULL DEFAULT 0,
   priority_key VARCHAR(20) NOT NULL DEFAULT 'none',
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS production_cards (
   extras_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   due_date DATETIME NOT NULL,
+  KEY idx_production_cards_stage_sort (stage, sort_order),
   CONSTRAINT fk_card_assignee FOREIGN KEY (assignee_id) REFERENCES users(id),
   CONSTRAINT fk_card_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

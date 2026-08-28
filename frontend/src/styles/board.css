@@ -179,7 +179,8 @@
   border-radius: 11px;
   background: var(--canvas);
   box-shadow: 0 1px 2px rgba(60, 45, 30, .06);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
   overflow: hidden;
   transition: border-color .18s, box-shadow .18s, transform .18s;
 }
@@ -190,11 +191,30 @@
   transform: translateY(-1px);
 }
 .task-card.selected { border-color: var(--stage); box-shadow: 0 0 0 2px color-mix(in srgb, var(--stage) 18%, transparent); }
-.task-card.dragging { opacity: .55; transform: none; }
+.task-card.dragging { opacity: .55; transform: none; cursor: grabbing; }
 .task-card.is-live { border-color: rgba(47,111,237,.35); }
 .task-card.has-unread {
   border-color: color-mix(in srgb, #c9372c 38%, var(--border));
   box-shadow: 0 0 0 1px rgba(201, 55, 44, 0.16);
+}
+.task-card.drop-before::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 3px;
+  border-radius: 0 0 99px 99px;
+  background: var(--stage);
+  pointer-events: none;
+}
+.card-list.drop-end::after {
+  content: '';
+  display: block;
+  height: 3px;
+  margin: 2px 8px 0;
+  border-radius: 99px;
+  background: var(--stage);
 }
 
 /* Trello-style unread counter, pinned beside the title. */
@@ -247,6 +267,11 @@
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+}
+.card-people .card-owner {
+  margin-top: 0;
+  font-size: 12px;
+  font-weight: 500;
 }
 .company {
   color: var(--blue);

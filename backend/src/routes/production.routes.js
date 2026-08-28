@@ -5,6 +5,7 @@ import {
   listPortfolio,
   createCard,
   updateCard,
+  moveCardPosition,
   deleteCard,
 } from '../controllers/production.controller.js';
 import {
@@ -41,6 +42,12 @@ productionRoutes.post(
   '/cards',
   requireRole('admin'),
   asyncHandler(createCard),
+);
+
+productionRoutes.patch(
+  '/cards/:id/move',
+  requireRole('admin', 'production'),
+  asyncHandler(moveCardPosition),
 );
 
 productionRoutes.patch(
