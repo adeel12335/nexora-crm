@@ -30,6 +30,7 @@ const defaultOrigins = [
   'https://thewikistudio.com',
   'https://www.thewikistudio.com',
   'https://nexora-crm-tau.vercel.app',
+  'https://lightslategray-cat-532319.hostingersite.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
@@ -62,16 +63,19 @@ app.use('/api/uploads', (req, res, next) => {
   if (!rel || rel.includes('..')) return res.status(400).json({ error: 'Invalid path' });
   const abs = resolveUploadOnDisk(rel);
   if (!abs) {
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(404).json({
       error: 'File not found on the server. It was likely lost on deploy — please re-upload.',
     });
   }
   const hashed = isHashedUploadPath(rel) || isHashedUploadPath(abs);
   const downloadName = path.basename(abs).replace(/[\r\n"]/g, '');
+  const ext = path.extname(abs).toLowerCase();
+  const inline = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.txt'].includes(ext);
   return res.sendFile(abs, {
     headers: {
       'X-Content-Type-Options': 'nosniff',
-      'Content-Disposition': `inline; filename="${downloadName}"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${downloadName}"`,
       'Cache-Control': hashed
         ? 'public, max-age=31536000, immutable'
         : 'public, max-age=604800',

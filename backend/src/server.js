@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { app } from './app.js';
 import { startProductionDeadlineCron } from './jobs/productionDeadlineAlerts.js';
-import { migrateAllBase64Uploads } from './controllers/uploads.controller.js';
+import { migrateAllBase64Uploads, migrateNormalizedAttachmentUrls } from './controllers/uploads.controller.js';
 import { ensureCardSortOrder } from './db/ensureSchema.js';
 
 const port = process.env.PORT || 4000;
@@ -24,8 +24,14 @@ async function start() {
           if (r.filesConverted) {
             console.log(`[uploads] migrated ${r.filesConverted} base64 file(s) across ${r.cardsTouched} card(s)`);
           }
+          return migrateNormalizedAttachmentUrls();
         })
-        .catch((err) => console.error('[uploads] base64 migrate failed:', err.message));
+        .then((r) => {
+          if (r?.cardsTouched) {
+            console.log(`[uploads] normalized attachment URLs on ${r.cardsTouched} card(s)`);
+          }
+        })
+        .catch((err) => console.error('[uploads] attachment migrate failed:', err.message));
     }
   });
 }

@@ -1,3 +1,5 @@
+import { isExternalAttachment } from '../utils/attachmentUrl.js';
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 /** Origin of the API host (no /api suffix), for resolving /api/uploads/... paths. */
@@ -32,8 +34,9 @@ export function resolveMediaUrl(url) {
 }
 
 /**
- * Open/download an uploaded file. Missing Hostinger files used to dump a JSON
- * 404 tab — catch that and tell the user to re-upload.
+ * Open/download an uploaded file by type.
+ * Trello imports must open in a new tab (fetch cannot use Trello cookies).
+ * Our /api/uploads files are fetched as a blob: images/PDFs preview, docs download.
  */
 export async function openUploadedFile(url, filename) {
   const href = resolveMediaUrl(url);
@@ -42,14 +45,24 @@ export async function openUploadedFile(url, filename) {
     window.open(href, '_blank', 'noopener,noreferrer');
     return;
   }
-  const res = await fetch(href);
+  if (isExternalAttachment(href)) {
+    const opened = window.open(href, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      throw new Error('Allow pop-ups to open this file (Trello login may be required)');
+    }
+    return;
+  }
+  const res = await fetch(href, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error('This file is missing on the server. Please upload it again.');
   }
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
-  const image = String(blob.type || '').startsWith('image/');
-  if (image) {
+  const lower = String(filename || href || '').toLowerCase();
+  const image = String(blob.type || '').startsWith('image/')
+    || /\.(png|jpe?g|gif|webp)$/i.test(lower);
+  const pdf = String(blob.type || '').includes('pdf') || lower.endsWith('.pdf');
+  if (image || pdf) {
     window.open(objectUrl, '_blank', 'noopener,noreferrer');
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     return;
@@ -98,6 +111,7 @@ async function uploadFiles(path, files, token) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: form,
+      cache: 'no-store',
       signal: controller.signal,
     });
     const data = await res.json().catch(() => null);

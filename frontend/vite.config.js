@@ -45,25 +45,21 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//, /\/uploads\//],
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
-            urlPattern: ({ url, request }) =>
-              url.pathname.startsWith('/api/') && request.method === 'GET',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'wiki-studio-api',
-              networkTimeoutSeconds: 8,
-              expiration: {
-                maxEntries: 64,
-                maxAgeSeconds: 60 * 2,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
+            // Never cache or time out API / file downloads (docs, images, PDFs).
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/'),
+            handler: 'NetworkOnly',
           },
           {
-            urlPattern: ({ request }) => request.destination === 'image',
+            urlPattern: ({ url, request }) =>
+              request.destination === 'image'
+              && !url.pathname.startsWith('/api/')
+              && !url.pathname.startsWith('/uploads/'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'wiki-studio-images',

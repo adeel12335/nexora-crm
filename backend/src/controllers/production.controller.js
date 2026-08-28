@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js';
 import { notifyProductionCardChange, notifyProductionCardCreated } from '../services/notifications.js';
 import { materializeExtrasDataUrls } from './uploads.controller.js';
+import { normalizeStoredFileUrl, rewriteExtrasFileUrls } from '../services/uploads.js';
 
 const STAGES = new Set([
   'new_project_create_draft',
@@ -178,23 +179,19 @@ function mapDeliveryList(raw, { light = false } = {}) {
   });
 }
 
+function mapStoredFile(f, { light = false } = {}) {
+  const url = normalizeStoredFileUrl(f?.url || f?.fileUrl);
+  return {
+    ...f,
+    url: light && typeof url === 'string' && url.startsWith('data:') ? null : url,
+  };
+}
+
 function toCard(row, { light = false, role = null, commentLimit = null } = {}) {
   const extras = parseExtras(row.extras_json);
   const assigneeId = row.assignee_id;
   const rawFiles = extras.fileList || [];
-  const fileList = light
-    ? rawFiles.map((f) => ({
-        id: f.id,
-        name: f.name,
-        size: f.size,
-        type: f.type,
-        uploadedAt: f.uploadedAt,
-        uploadedById: f.uploadedById ?? null,
-        uploadedByName: f.uploadedByName || null,
-        // Omit base64 data URLs from list payloads (huge).
-        url: typeof f.url === 'string' && f.url.startsWith('data:') ? null : f.url,
-      }))
-    : rawFiles;
+  const fileList = rawFiles.map((f) => mapStoredFile(f, { light }));
 
   const isProduction = role === 'production';
   const description = isProduction
@@ -382,7 +379,7 @@ function sanitizeFileAttachment(f, { totalBytes, label = 'Attachment', strict = 
       name,
       size,
       type: String(f.type || 'application/octet-stream'),
-      url: url || null,
+      url: normalizeStoredFileUrl(url),
       uploadedAt: f.uploadedAt || new Date().toISOString(),
       uploadedById: stampUploaderId(f),
       uploadedByName: stampUploaderName(f),
@@ -423,7 +420,7 @@ function mapCommentList(raw, { light = false } = {}) {
         name: f?.name || null,
         size: f?.size ?? null,
         type: f?.type || null,
-        url: light && typeof url === 'string' && url.startsWith('data:') ? null : url,
+        url: light && typeof url === 'string' && url.startsWith('data:') ? null : normalizeStoredFileUrl(url),
         uploadedAt: f?.uploadedAt || null,
         uploadedById: f?.uploadedById ?? f?.authorId ?? null,
         uploadedByName: f?.uploadedByName || f?.author || null,
@@ -860,12 +857,12 @@ function sanitizeExtras({ commentList, fileList, feedback, deliveryList, strictF
     throw err;
   }
 
-  return {
+  return rewriteExtrasFileUrls({
     commentList: comments,
     fileList: files,
     feedback: fb,
     deliveryList: sanitizeDeliveryList(deliveryList),
-  };
+  });
 }
 
 async function syncClientProductionStatus(clientId) {

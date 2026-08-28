@@ -6,6 +6,7 @@ import {
   finalizeStoredUpload,
   isAllowedUploadName,
   materializeFileAttachment,
+  rewriteExtrasFileUrls,
   UPLOAD_ROOT,
   UPLOAD_TMP_DIR,
 } from '../services/uploads.js';
@@ -174,12 +175,12 @@ export function materializeExtrasDataUrls(extras) {
   }) : [];
 
   return {
-    extras: {
+    extras: rewriteExtrasFileUrls({
       ...src,
       fileList: files.list,
       commentList: comments,
       deliveryList: deliveries,
-    },
+    }),
     converted,
   };
 }
@@ -215,4 +216,28 @@ export async function migrateAllBase64Uploads() {
   }
 
   return { cardsTouched, filesConverted, uploadRoot: UPLOAD_ROOT };
+}
+
+/**
+ * Rewrite Hostinger-absolute upload URLs to /api/uploads/... and drop any
+ * leftover data: blobs. Safe to re-run.
+ */
+export async function migrateNormalizedAttachmentUrls() {
+  const [rows] = await pool.query('SELECT id, extras_json, attachments_count FROM production_cards');
+  let cardsTouched = 0;
+  for (const row of rows) {
+    const extras = parseExtras(row.extras_json);
+    const next = rewriteExtrasFileUrls(extras);
+    if (JSON.stringify(next) === JSON.stringify(extras)) continue;
+    await pool.query(
+      'UPDATE production_cards SET extras_json = ?, attachments_count = ? WHERE id = ?',
+      [
+        JSON.stringify(next),
+        Array.isArray(next.fileList) ? next.fileList.length : (row.attachments_count || 0),
+        row.id,
+      ],
+    );
+    cardsTouched += 1;
+  }
+  return { cardsTouched };
 }

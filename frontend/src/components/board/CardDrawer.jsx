@@ -16,6 +16,7 @@ import {
 } from '../../utils/boardValidation.js';
 import { requiresLiveLink, isLiveLikeStage } from '../../data/productionStages.js';
 import { openUploadedFile, resolveMediaUrl } from '../../api/client.js';
+import { attachmentSource } from '../../utils/attachmentUrl.js';
 import Avatar from './Avatar.jsx';
 
 const DESC_COLLAPSE_AT = 280;
@@ -306,7 +307,11 @@ export default function CardDrawer({
     try {
       await openUploadedFile(file?.url || file?.fileUrl, file?.name);
     } catch (err) {
-      showErrors('File unavailable', [err.message || 'Could not open this file']);
+      const source = attachmentSource(file?.url || file?.fileUrl);
+      const message = source === 'trello'
+        ? (err.message || 'This file is on Trello. Sign in to Trello if it does not download.')
+        : (err.message || 'Could not open this file');
+      showErrors('File unavailable', [message]);
     }
   }
 
@@ -794,17 +799,18 @@ export default function CardDrawer({
                 <ul className="card-attach-list">
                   {files.map((file) => {
                     const kind = fileKind(file.name);
+                    const source = attachmentSource(file.url);
                     const fileMenu = menu === `file:${file.id}`;
+                    const metaBits = [];
+                    if (source === 'trello') metaBits.push('Trello');
+                    if (file.uploadedAt) metaBits.push(`Added ${formatStamp(file.uploadedAt)}`);
+                    if (Number(file.size) > 1) metaBits.push(formatFileSize(file.size));
                     return (
                       <li key={file.id} className={`card-attach-row${file._pending || uploadBusy ? ' is-pending' : ''}`}>
                         <span className={`card-file-badge tone-${kind.tone}`}>{kind.label}</span>
                         <div className="card-attach-meta">
                           <strong>{file.name}</strong>
-                          <span>
-                            {file.uploadedAt
-                              ? `Added ${formatStamp(file.uploadedAt)} · ${formatFileSize(file.size || 0)}`
-                              : formatFileSize(file.size || 0)}
-                          </span>
+                          <span>{metaBits.join(' · ') || kind.label}</span>
                         </div>
                         <div className="card-attach-actions">
                           {file.url ? (
@@ -980,7 +986,13 @@ export default function CardDrawer({
                                 {entry.files.map((file) => {
                                   const kind = fileKind(file.name);
                                   const href = resolveMediaUrl(file.url || file.fileUrl || null);
-                                  const image = Boolean(href) && isImageFile(file);
+                                  const source = attachmentSource(file.url || file.fileUrl);
+                                  const image = Boolean(href) && isImageFile(file) && source === 'server';
+                                  const sizeLabel = source === 'trello'
+                                    ? 'Trello'
+                                    : (Number(file.size) > 1
+                                      ? formatFileSize(Number(file.size))
+                                      : (href ? 'Open' : 'Unavailable'));
                                   return (
                                     <li key={file.id || file.name} className={image ? 'is-image' : ''}>
                                       {image ? (
@@ -1009,9 +1021,7 @@ export default function CardDrawer({
                                         ) : (
                                           <span className="card-comment-file-name">{file.name || 'File'}</span>
                                         )}
-                                        <span className="card-comment-file-size">
-                                          {Number(file.size) > 0 ? formatFileSize(Number(file.size)) : (href ? 'Open' : 'Unavailable')}
-                                        </span>
+                                        <span className="card-comment-file-size">{sizeLabel}</span>
                                       </span>
                                     </li>
                                   );

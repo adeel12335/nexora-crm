@@ -124,6 +124,60 @@ export function toPublicUploadUrl(relativePath) {
   return `/api/uploads/${rel}`;
 }
 
+/** True when this URL is a file we store under /api/uploads. */
+export function isOurUploadUrl(url) {
+  const raw = String(url || '');
+  return /(?:^https?:\/\/[^/]+)?\/(?:api\/)?uploads\//i.test(raw);
+}
+
+/**
+ * Keep our files host-less. Drop leftover data: blobs so MySQL never stores
+ * base64. Leave Trello / other https links untouched.
+ */
+export function normalizeStoredFileUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return null;
+  const hosted = raw.match(/^https?:\/\/[^/]+(\/(?:api\/)?uploads\/.+)$/i);
+  if (hosted) {
+    const path = hosted[1].startsWith('/api/') ? hosted[1] : `/api${hosted[1]}`;
+    return path.split(/[?#]/)[0];
+  }
+  if (raw.startsWith('/uploads/')) return `/api${raw.split(/[?#]/)[0]}`;
+  if (raw.startsWith('/api/uploads/')) return raw.split(/[?#]/)[0];
+  return raw;
+}
+
+function rewriteFileRecord(file) {
+  if (!file || typeof file !== 'object') return file;
+  const nextUrl = normalizeStoredFileUrl(file.url || file.fileUrl);
+  const out = { ...file, url: nextUrl };
+  if (file.fileUrl !== undefined) out.fileUrl = nextUrl;
+  return out;
+}
+
+/** Strip data: blobs and re-anchor Hostinger upload URLs in extras JSON. */
+export function rewriteExtrasFileUrls(extras) {
+  const src = extras && typeof extras === 'object' ? extras : {};
+  return {
+    ...src,
+    fileList: Array.isArray(src.fileList) ? src.fileList.map(rewriteFileRecord) : src.fileList,
+    commentList: Array.isArray(src.commentList)
+      ? src.commentList.map((c) => ({
+          ...c,
+          files: Array.isArray(c?.files) ? c.files.map(rewriteFileRecord) : c.files,
+        }))
+      : src.commentList,
+    deliveryList: Array.isArray(src.deliveryList)
+      ? src.deliveryList.map((d) => ({
+          ...d,
+          fileUrl: normalizeStoredFileUrl(d?.fileUrl || d?.url) || d?.fileUrl,
+          files: Array.isArray(d?.files) ? d.files.map(rewriteFileRecord) : d.files,
+        }))
+      : src.deliveryList,
+  };
+}
+
 function assertAllowedExt(originalName) {
   const ext = fileExtOf(originalName);
   if (!ALLOWED_EXT.has(ext)) {

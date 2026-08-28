@@ -1,5 +1,8 @@
+import fs from 'fs';
+import path from 'path';
 import { pool } from '../config/db.js';
 import { getWasenderPublicConfig, isWasenderConfigured } from '../services/wasender.js';
+import { ensureUploadDirs, PRODUCTION_DIR, UPLOAD_ROOT, UPLOAD_TMP_DIR } from '../services/uploads.js';
 
 const startedAt = Date.now();
 
@@ -51,6 +54,29 @@ export async function healthCheck(req, res) {
     port: Number(process.env.PORT) || 4000,
   };
   if (!checks.env.ok) ok = false;
+
+  // --- disk uploads (Hostinger persist path) ---
+  try {
+    ensureUploadDirs();
+    const probe = path.join(UPLOAD_TMP_DIR, '.write-ok');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    const names = fs.readdirSync(PRODUCTION_DIR).filter((name) => name !== '.write-ok');
+    checks.uploads = {
+      ok: true,
+      writable: true,
+      dir: path.basename(UPLOAD_ROOT),
+      files: names.length,
+    };
+  } catch (err) {
+    checks.uploads = {
+      ok: false,
+      writable: false,
+      dir: path.basename(UPLOAD_ROOT || 'uploads'),
+      files: 0,
+      error: err.message,
+    };
+  }
 
   // --- WhatsApp / Wasender (config only; no live API call on every probe) ---
   const wa = getWasenderPublicConfig();
