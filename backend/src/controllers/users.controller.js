@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { isValidEmail, normalisePhone } from '../utils/phone.js';
 import {

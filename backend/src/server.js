@@ -6,6 +6,16 @@ import { ensureCardSortOrder } from './db/ensureSchema.js';
 
 const port = process.env.PORT || 4000;
 
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error('[unhandledRejection]', message);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err.stack || err.message);
+  process.exit(1);
+});
+
 async function start() {
   try {
     await ensureCardSortOrder();
@@ -36,4 +46,7 @@ async function start() {
   });
 }
 
-start();
+start().catch((err) => {
+  console.error('[boot] failed:', err.stack || err.message);
+  process.exit(1);
+});

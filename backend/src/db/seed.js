@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import 'dotenv/config';
 import { pool } from '../config/db.js';
 import { computeDueDate } from '../utils/deadlineUtils.js';
