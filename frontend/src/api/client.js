@@ -328,4 +328,46 @@ export const api = {
     request('/settings/whatsapp/test', { method: 'POST', body, token }),
   sendWhatsAppBroadcast: (token, body) =>
     request('/settings/whatsapp/send', { method: 'POST', body, token }),
+
+  // --- data center (admin leads) ---
+  listDataCenter: (token, query = {}) => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.university) params.set('university', query.university);
+    if (query.country) params.set('country', query.country);
+    if (query.page) params.set('page', String(query.page));
+    if (query.pageSize) params.set('pageSize', String(query.pageSize));
+    const q = params.toString();
+    return request(`/data-center${q ? `?${q}` : ''}`, { token });
+  },
+  dataCenterMeta: (token) => request('/data-center/meta', { token }),
+  exportDataCenter: async (token, query = {}) => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.university) params.set('university', query.university);
+    if (query.country) params.set('country', query.country);
+    const q = params.toString();
+    const res = await fetch(`${API_BASE}/data-center/export${q ? `?${q}` : ''}`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || `Export failed (${res.status})`);
+    }
+    return res.blob();
+  },
+  importDataCenterCsv: async (token, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE}/data-center/import`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(data?.error || `Import failed (${res.status})`);
+    }
+    return data;
+  },
 };

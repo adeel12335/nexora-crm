@@ -10,6 +10,7 @@ import './styles/notifications.css'
 import './styles/auth.css'
 import './styles/commission.css'
 import './styles/followups.css'
+import './styles/data-center.css'
 import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(

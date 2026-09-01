@@ -1,0 +1,124 @@
+/* Data Center — reuses panel / attendance-table / toolbar conventions. */
+
+.data-center-page .stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.data-center-summary {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.data-center-table td {
+  vertical-align: middle;
+}
+
+.data-center-name {
+  font-size: 14px;
+}
+
+.data-center-email-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.data-center-email {
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.data-center-email:hover,
+.data-center-email:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.data-center-copy {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.data-center-copy:hover,
+.data-center-copy:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.data-center-chip {
+  display: inline-flex;
+  max-width: 240px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-center-chip--quiet {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.data-center-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.data-center-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.data-center-status.is-green { background: rgba(78, 154, 106, 0.14); color: var(--green); }
+.data-center-status.is-orange { background: rgba(216, 167, 76, 0.18); color: var(--bronze); }
+.data-center-status.is-blue { background: rgba(106, 159, 181, 0.16); color: var(--blue); }
+.data-center-status.is-red { background: rgba(201, 36, 113, 0.12); color: var(--red); }
+.data-center-status.is-muted { background: var(--surface-2); color: var(--muted); }
+
+.data-center-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 28px 16px !important;
+}
+
+.data-center-page .panel.is-loading {
+  opacity: 0.72;
+}
+
+.data-center-page .toolbar-actions .tool-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 760px) {
+  .data-center-copy { display: none; }
+  .data-center-chip { max-width: 160px; }
+}

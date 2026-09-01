@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { app } from './app.js';
 import { startProductionDeadlineCron } from './jobs/productionDeadlineAlerts.js';
 import { migrateAllBase64Uploads, migrateNormalizedAttachmentUrls } from './controllers/uploads.controller.js';
-import { ensureCardSortOrder } from './db/ensureSchema.js';
+import { ensureCardSortOrder, ensureDataCenterLeads } from './db/ensureSchema.js';
 
 const port = process.env.PORT || 4000;
 
@@ -21,6 +21,12 @@ async function start() {
     await ensureCardSortOrder();
   } catch (err) {
     console.error('[schema] sort_order ensure failed:', err.message);
+  }
+
+  try {
+    await ensureDataCenterLeads();
+  } catch (err) {
+    console.error('[schema] data_center_leads ensure failed:', err.message);
   }
 
   app.listen(port, () => {

@@ -9,6 +9,7 @@ export default function TableToolbar({
   search,
   onSearch,
   searchPlaceholder = 'Search…',
+  searchAriaLabel,
   agents,
   agentId,
   onAgentId,
@@ -52,6 +53,7 @@ export default function TableToolbar({
           type="search"
           placeholder={searchPlaceholder}
           value={search}
+          aria-label={searchAriaLabel || searchPlaceholder}
           onChange={(e) => onSearch(e.target.value)}
         />
       ) : null}

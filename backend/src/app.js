@@ -7,6 +7,7 @@ import { commissionsRoutes } from './routes/commissions.routes.js';
 import { mailboxesRoutes } from './routes/mailboxes.routes.js';
 import { attendanceRoutes } from './routes/attendance.routes.js';
 import { clientsRoutes } from './routes/clients.routes.js';
+import { dataCenterRoutes } from './routes/dataCenter.routes.js';
 import { whatsappRoutes } from './routes/whatsapp.routes.js';
 import { notificationsRoutes } from './routes/notifications.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
@@ -119,6 +120,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/follow-ups', followupsRoutes);
+app.use('/api/data-center', dataCenterRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

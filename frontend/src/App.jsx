@@ -20,6 +20,7 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard.jsx'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const UsersPage = lazy(() => import('./pages/admin/UsersPage.jsx'));
 const ClientsPage = lazy(() => import('./pages/admin/ClientsPage.jsx'));
+const DataCenterPage = lazy(() => import('./pages/admin/DataCenterPage.jsx'));
 
 const ManagerDashboard = lazy(() => import('./pages/manager/ManagerDashboard.jsx'));
 const TeamCommission = lazy(() => import('./pages/manager/TeamCommission.jsx'));
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="production" element={<ProductionBoardPage />} />
                 <Route path="users" element={<UsersPage />} />
                 <Route path="clients" element={<ClientsPage />} />
+                <Route path="data-center" element={<DataCenterPage />} />
                 <Route path="follow-ups" element={<FollowUpsPage />} />
                 <Route path="commissions" element={<CommissionEarningsPage />} />
                 <Route path="mailboxes" element={<MailboxesPage />} />

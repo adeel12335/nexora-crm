@@ -7,7 +7,9 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "db:migrate": "node src/db/migrate.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "db:import-data-center": "node scripts/import-data-center.mjs",
+    "test": "node --test src/services/dataCenter.test.js src/utils/csvParse.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
